@@ -1,0 +1,28 @@
+{
+  "name": "lms-backend",
+  "version": "1.0.0",
+  "description": "LMS System",
+  "license": "ISC",
+  "author": "Kirtick M M",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "crypto": "^1.0.1",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.2.3",
+    "morgan": "^1.10.1",
+    "multer": "^2.1.0",
+    "nodemailer": "^8.0.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

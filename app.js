@@ -2,8 +2,12 @@ import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import morgan from 'morgan';
+import path from 'path';
+
+// Environment variables Configuration
 dotenv.config();
 
+// Databse Connection
 import connectDB from './config/DB.js';
 connectDB();
 

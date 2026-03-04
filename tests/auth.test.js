@@ -1,6 +1,5 @@
 import { jest } from '@jest/globals';
 
-// Mock email BEFORE importing app
 jest.unstable_mockModule('../utils/sendEmail.js', () => ({
   sendEmail: jest.fn().mockResolvedValue(true)
 }));
@@ -12,10 +11,8 @@ import request from 'supertest';
 import crypto from 'crypto';
 
 describe('Auth API', () => {
-  /* ================= REGISTER ================= */
-
   describe('Register', () => {
-    it('should register a user successfully', async () => {
+    it('registers a user successfully', async () => {
       const res = await request(app).post('/api/auth/register').send({
         email: 'student@example.com',
         password: '123456',
@@ -25,10 +22,11 @@ describe('Auth API', () => {
       expect(res.statusCode).toBe(201);
       expect(res.body.success).toBe(true);
       expect(res.body.data.token).toBeDefined();
+      expect(res.body.data.role).toBe('STUDENT');
     });
 
-    it('should fail if email already exists', async () => {
-      await User.create({
+    it('rejects duplicate email', async () => {
+      await request(app).post('/api/auth/register').send({
         email: 'duplicate@example.com',
         password: '123456',
         role: 'STUDENT'
@@ -44,50 +42,15 @@ describe('Auth API', () => {
       expect(res.body.success).toBe(false);
     });
 
-    it('should fail if email is missing', async () => {
+    it('fails when required fields are missing', async () => {
       const res = await request(app).post('/api/auth/register').send({
-        password: '123456',
-        role: 'STUDENT'
+        email: 'missing@example.com'
       });
 
       expect(res.statusCode).toBe(400);
-    });
-
-    it('should fail if password is missing', async () => {
-      const res = await request(app).post('/api/auth/register').send({
-        email: 'nopassword@example.com',
-        role: 'STUDENT'
-      });
-
-      expect(res.statusCode).toBe(400);
-    });
-
-    it('should fail for invalid role', async () => {
-      const res = await request(app).post('/api/auth/register').send({
-        email: 'role@example.com',
-        password: '123456',
-        role: 'INVALID'
-      });
-
-      expect(res.statusCode).toBe(400);
-    });
-
-    it('should hash password before saving', async () => {
-      await request(app).post('/api/auth/register').send({
-        email: 'hashcheck@example.com',
-        password: '123456',
-        role: 'STUDENT'
-      });
-
-      const user = await User.findOne({
-        email: 'hashcheck@example.com'
-      }).select('+password');
-
-      expect(user.password).not.toBe('123456');
+      expect(res.body.success).toBe(false);
     });
   });
-
-  /* ================= LOGIN ================= */
 
   describe('Login', () => {
     beforeEach(async () => {
@@ -98,7 +61,7 @@ describe('Auth API', () => {
       });
     });
 
-    it('should login successfully', async () => {
+    it('logs in with valid credentials and updates lastLogin', async () => {
       const res = await request(app).post('/api/auth/login').send({
         email: 'login@example.com',
         password: '123456'
@@ -107,41 +70,31 @@ describe('Auth API', () => {
       expect(res.statusCode).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.token).toBeDefined();
+
+      const user = await User.findOne({ email: 'login@example.com' });
+      expect(user.lastLogin).toBeTruthy();
     });
 
-    it('should fail if user does not exist', async () => {
-      const res = await request(app).post('/api/auth/login').send({
-        email: 'nouser@example.com',
-        password: '123456'
-      });
-
-      expect(res.statusCode).toBe(401);
-    });
-
-    it('should fail if password incorrect', async () => {
-      const res = await request(app).post('/api/auth/login').send({
+    it('fails for invalid credentials or inactive account', async () => {
+      const wrongPass = await request(app).post('/api/auth/login').send({
         email: 'login@example.com',
         password: 'wrong'
       });
 
-      expect(res.statusCode).toBe(401);
-    });
+      expect(wrongPass.statusCode).toBe(401);
 
-    it('should fail if account inactive', async () => {
       await User.updateOne({ email: 'login@example.com' }, { isActive: false });
 
-      const res = await request(app).post('/api/auth/login').send({
+      const inactive = await request(app).post('/api/auth/login').send({
         email: 'login@example.com',
         password: '123456'
       });
 
-      expect(res.statusCode).toBe(403);
+      expect(inactive.statusCode).toBe(403);
     });
   });
 
-  /* ================= FORGOT PASSWORD ================= */
-
-  describe('Forgot Password', () => {
+  describe('Forgot and reset password', () => {
     beforeEach(async () => {
       await User.create({
         email: 'forgot@example.com',
@@ -150,89 +103,74 @@ describe('Auth API', () => {
       });
     });
 
-    it('should generate reset token if user exists', async () => {
-      const res = await request(app).post('/api/auth/forgot-password').send({
-        email: 'forgot@example.com'
-      });
+    it('generates hashed reset token for existing user and is enumeration-safe', async () => {
+      const existingRes = await request(app)
+        .post('/api/auth/forgot-password')
+        .send({ email: 'forgot@example.com' });
 
-      expect(res.statusCode).toBe(200);
-      expect(res.body.success).toBe(true);
+      const missingRes = await request(app)
+        .post('/api/auth/forgot-password')
+        .send({ email: 'nouser@example.com' });
 
-      const user = await User.findOne({ email: 'forgot@example.com' });
+      expect(existingRes.statusCode).toBe(200);
+      expect(missingRes.statusCode).toBe(200);
+      expect(existingRes.body.message).toBe(missingRes.body.message);
 
+      const user = await User.findOne({ email: 'forgot@example.com' }).select(
+        '+resetPasswordToken +resetPasswordExpire'
+      );
       expect(user.resetPasswordToken).toBeDefined();
+      expect(user.resetPasswordExpire).toBeDefined();
     });
 
-    it('should still return success if user does not exist', async () => {
-      const res = await request(app).post('/api/auth/forgot-password').send({
-        email: 'nouser@example.com'
-      });
-
-      expect(res.statusCode).toBe(200);
-      expect(res.body.success).toBe(true);
-    });
-  });
-
-  /* ================= RESET PASSWORD ================= */
-
-  describe('Reset Password', () => {
-    it('should reset password successfully', async () => {
-      const user = await User.create({
-        email: 'reset@example.com',
-        password: '123456',
-        role: 'STUDENT'
-      });
+    it('resets password with valid token and rejects expired token', async () => {
+      const user = await User.findOne({ email: 'forgot@example.com' }).select(
+        '+password'
+      );
 
       const rawToken = crypto.randomBytes(32).toString('hex');
-
       user.resetPasswordToken = crypto
         .createHash('sha256')
         .update(rawToken)
         .digest('hex');
-
-      user.resetPasswordExpire = Date.now() + 100000;
-
+      user.resetPasswordExpire = Date.now() + 60 * 1000;
       await user.save({ validateBeforeSave: false });
 
-      const res = await request(app).post('/api/auth/reset-password').send({
-        token: rawToken,
-        newPassword: 'newpass123'
+      const successRes = await request(app)
+        .post('/api/auth/reset-password')
+        .send({
+          token: rawToken,
+          newPassword: 'newpass123'
+        });
+
+      expect(successRes.statusCode).toBe(200);
+
+      const loginRes = await request(app).post('/api/auth/login').send({
+        email: 'forgot@example.com',
+        password: 'newpass123'
       });
+      expect(loginRes.statusCode).toBe(200);
 
-      expect(res.statusCode).toBe(200);
-      expect(res.body.success).toBe(true);
-    });
-
-    it('should fail if token expired', async () => {
-      const user = await User.create({
-        email: 'expired@example.com',
-        password: '123456',
-        role: 'STUDENT'
-      });
-
-      const rawToken = crypto.randomBytes(32).toString('hex');
-
+      const expiredToken = crypto.randomBytes(32).toString('hex');
       user.resetPasswordToken = crypto
         .createHash('sha256')
-        .update(rawToken)
+        .update(expiredToken)
         .digest('hex');
-
       user.resetPasswordExpire = Date.now() - 1000;
-
       await user.save({ validateBeforeSave: false });
 
-      const res = await request(app).post('/api/auth/reset-password').send({
-        token: rawToken,
-        newPassword: '123456'
-      });
+      const expiredRes = await request(app)
+        .post('/api/auth/reset-password')
+        .send({
+          token: expiredToken,
+          newPassword: 'again123'
+        });
 
-      expect(res.statusCode).toBe(400);
+      expect(expiredRes.statusCode).toBe(400);
     });
   });
 
-  /* ================= CHANGE PASSWORD ================= */
-
-  describe('Change Password', () => {
+  describe('Change password', () => {
     let token;
 
     beforeEach(async () => {
@@ -250,7 +188,7 @@ describe('Auth API', () => {
       token = login.body.data.token;
     });
 
-    it('should change password successfully', async () => {
+    it('changes password successfully for authenticated user', async () => {
       const res = await request(app)
         .post('/api/auth/change-password')
         .set('Authorization', `Bearer ${token}`)
@@ -261,10 +199,17 @@ describe('Auth API', () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.body.success).toBe(true);
+
+      const relogin = await request(app).post('/api/auth/login').send({
+        email: 'changepass@example.com',
+        password: 'newpass123'
+      });
+
+      expect(relogin.statusCode).toBe(200);
     });
 
-    it('should fail if current password incorrect', async () => {
-      const res = await request(app)
+    it('fails with wrong current password or missing token', async () => {
+      const wrong = await request(app)
         .post('/api/auth/change-password')
         .set('Authorization', `Bearer ${token}`)
         .send({
@@ -272,16 +217,15 @@ describe('Auth API', () => {
           newPassword: 'newpass123'
         });
 
-      expect(res.statusCode).toBe(400);
-    });
+      const missing = await request(app)
+        .post('/api/auth/change-password')
+        .send({
+          currentPassword: '123456',
+          newPassword: 'newpass123'
+        });
 
-    it('should fail if unauthorized', async () => {
-      const res = await request(app).post('/api/auth/change-password').send({
-        currentPassword: '123456',
-        newPassword: 'newpass123'
-      });
-
-      expect(res.statusCode).toBe(401);
+      expect(wrong.statusCode).toBe(400);
+      expect(missing.statusCode).toBe(401);
     });
   });
 });

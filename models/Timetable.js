@@ -1,57 +1,73 @@
 import mongoose from 'mongoose';
 
-const slotSchema = new mongoose.Schema(
+const scheduleEntrySchema = new mongoose.Schema(
   {
-    time: {
+    dayOfWeek: {
       type: String,
       required: true
     },
-    subjectId: {
+
+    periodNumber: {
+      type: Number,
+      required: true,
+      min: 1
+    },
+
+    classroomId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Classroom',
+      required: true
+    },
+
+    startTime: {
       type: String,
       required: true
     },
-    subjectName: String,
-    facultyId: {
+
+    endTime: {
       type: String,
       required: true
-    },
-    facultyName: String
+    }
   },
   { _id: false }
 );
 
-const daySchema = new mongoose.Schema(
-  {
-    day: {
-      type: String,
-      required: true
-    },
-    slots: [slotSchema]
-  },
-  { _id: true }
-);
-
 const timetableSchema = new mongoose.Schema(
   {
-    department: {
-      type: String,
-      required: true
+    sectionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Section',
+      required: true,
+      index: true
     },
-    year: {
-      type: String,
-      required: true
-    },
-    semester: {
+
+    semesterNumber: {
       type: Number,
-      required: true
+      required: true,
+      min: 1,
+      index: true
     },
-    section: {
-      type: String,
-      required: true
+
+    schedule: {
+      type: [scheduleEntrySchema],
+      default: []
     },
-    days: [daySchema]
+
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true
+    }
   },
   { timestamps: true }
+);
+
+/* ---------------- INDEXES ---------------- */
+timetableSchema.index({ sectionId: 1, semesterNumber: 1 }, { unique: true });
+
+timetableSchema.index(
+  { sectionId: 1, 'schedule.dayOfWeek': 1, 'schedule.periodNumber': 1 },
+  { sparse: true }
 );
 
 export default mongoose.model('Timetable', timetableSchema);

@@ -14,6 +14,9 @@ const options = {
       },
       {
         url: 'http://localhost:5000'
+      },
+      {
+        url: 'http://172.17.29.240:5000'
       }
     ],
     components: {

@@ -1,24 +1,26 @@
 import mongoose from 'mongoose';
 
-const sectionSchema = new mongoose.Schema(
+const regulationSchema = new mongoose.Schema(
   {
     name: {
       type: String,
       required: true,
+      unique: true,
+      trim: true,
       uppercase: true,
-      trim: true
-    },
-
-    batchId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Batch',
-      required: true,
       index: true
     },
 
-    capacity: {
+    startYear: {
       type: Number,
-      default: 60,
+      required: true,
+      index: true,
+      min: 1900
+    },
+
+    totalSemesters: {
+      type: Number,
+      default: 8,
       min: 1
     },
 
@@ -32,14 +34,17 @@ const sectionSchema = new mongoose.Schema(
 );
 
 /* ---------------- INDEXES ---------------- */
-sectionSchema.index({ name: 1, batchId: 1 }, { unique: true });
-sectionSchema.index({ batchId: 1, isActive: 1 });
+regulationSchema.index({ startYear: 1, totalSemesters: 1 });
 
 /* ---------------- MIDDLEWARE ---------------- */
-sectionSchema.pre('validate', function () {
+regulationSchema.pre('validate', function () {
+  if (!this.name && this.startYear) {
+    this.name = `R${this.startYear}`;
+  }
+
   if (this.name) {
     this.name = String(this.name).trim().toUpperCase();
   }
 });
 
-export default mongoose.model('Section', sectionSchema);
+export default mongoose.model('Regulation', regulationSchema);

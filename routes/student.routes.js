@@ -3,14 +3,14 @@ import multer from 'multer';
 import {
   addStudent,
   updateStudent,
+  updateStudentSemester,
   deleteStudent,
   getAllStudents,
-  getStudentsFiltered,
-  swapStudentSection,
+  // getStudentsFiltered,
+  // swapStudentSection,
   uploadMultipleStudents,
   getStudentDepartmentWise,
-  getStudentStats,
-  getDepartmentSummary
+  getStudentStats
 } from '../controllers/student.controller.js';
 import { protect, authorize } from '../middleware/auth.middleware.js';
 
@@ -72,30 +72,30 @@ const upload = multer({ storage: multer.memoryStorage() });
  *         departmentCode:
  *           type: string
  *           example: CSE
- *         academicYearId:
+ *         regulationId:
  *           type: string
- *           description: Existing AcademicYear ObjectId
- *         academicYearName:
+ *           description: Existing Regulation ObjectId
+ *         regulationStartYear:
+ *           type: integer
+ *           example: 2024
+ *         regulationName:
  *           type: string
- *           example: 2026-2027
+ *           example: R2024
  *         startYear:
  *           type: integer
- *           example: 2026
+ *           example: 2024
  *         endYear:
  *           type: integer
- *           example: 2027
+ *           example: 2028
  *         batchId:
  *           type: string
  *           description: Existing Batch ObjectId
- *         batchName:
+ *         sectionId:
  *           type: string
- *           example: CSE-2026
- *         admissionYear:
- *           type: integer
- *           example: 2026
- *         graduationYear:
- *           type: integer
- *           example: 2030
+ *           description: Existing Section ObjectId (if omitted, defaults to UNALLOCATED)
+ *         sectionName:
+ *           type: string
+ *           example: A
  *         programDuration:
  *           type: integer
  *           example: 4
@@ -249,6 +249,58 @@ router.put('/:id', protect, authorize('ADMIN'), updateStudent);
 
 /**
  * @swagger
+ * /api/students/{id}/semester:
+ *   patch:
+ *     summary: Update student semester and academic year
+ *     tags: [Students]
+ *     description: |
+ *       Updates a student's semester number and automatically recalculates academic year based on batch start year.
+ *
+ *       **Access:** Authenticated users with role ADMIN only
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - semesterNumber
+ *             properties:
+ *               semesterNumber:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 12
+ *     responses:
+ *       200:
+ *         description: Student semester updated successfully
+ *       400:
+ *         description: Invalid input
+ *       401:
+ *         description: Unauthorized (JWT missing or invalid)
+ *       403:
+ *         description: Access denied (requires ADMIN)
+ *       404:
+ *         description: Student not found
+ *       500:
+ *         description: Server error
+ */
+router.patch(
+  '/:id/semester',
+  protect,
+  authorize('ADMIN'),
+  updateStudentSemester
+);
+
+/**
+ * @swagger
  * /api/students/{id}:
  *   delete:
  *     summary: Delete student and linked user
@@ -286,35 +338,8 @@ router.delete('/:id', protect, authorize('ADMIN'), deleteStudent);
  *     summary: Get all students
  *     tags: [Students]
  *     description: |
- *       Returns all students with related user/department/batch/academic history population.
- *
- *       **Access:** Any authenticated user (STUDENT, FACULTY, ADMIN)
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Students fetched successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 type: object
- *       401:
- *         description: Unauthorized (JWT missing or invalid)
- *       500:
- *         description: Server error
- */
-router.get('/', protect, getAllStudents);
-
-/**
- * @swagger
- * /api/students/filter:
- *   get:
- *     summary: Filter students by department, batch, and current section
- *     tags: [Students]
- *     description: |
- *       Filters students by optional departmentId, batchId, and current sectionId.
+ *       Returns students with related user, department, batch, and section data.
+ *       Optional filters are supported using query params.
  *
  *       **Access:** Any authenticated user (STUDENT, FACULTY, ADMIN)
  *     security:
@@ -332,51 +357,33 @@ router.get('/', protect, getAllStudents);
  *         name: sectionId
  *         schema:
  *           type: string
+ *       - in: query
+ *         name: academicYearStartYear
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: academicYearEndYear
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: academicYearName
+ *         schema:
+ *           type: string
  *     responses:
  *       200:
- *         description: Filtered students fetched successfully
+ *         description: Students fetched successfully
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/StudentListResponse'
+ *               type: array
+ *               items:
+ *                 type: object
  *       401:
  *         description: Unauthorized (JWT missing or invalid)
  *       500:
  *         description: Server error
  */
-router.get('/filter', protect, getStudentsFiltered);
-
-/**
- * @swagger
- * /api/students/swap-section:
- *   post:
- *     summary: Move selected students to a new section for a semester/year
- *     tags: [Students]
- *     description: |
- *       Marks previous current history entries as non-current and adds a new current academic history entry.
- *
- *       **Access:** Authenticated users with role ADMIN only
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/StudentSwapSectionRequest'
- *     responses:
- *       200:
- *         description: Students moved successfully
- *       400:
- *         description: No students selected
- *       401:
- *         description: Unauthorized (JWT missing or invalid)
- *       403:
- *         description: Access denied (requires ADMIN)
- *       500:
- *         description: Server error
- */
-router.post('/swap-section', protect, authorize('ADMIN'), swapStudentSection);
+router.get('/', protect, getAllStudents);
 
 /**
  * @swagger
@@ -424,34 +431,13 @@ router.post(
 
 /**
  * @swagger
- * /api/students/department-wise:
+ * /api/students/stats/year-wise:
  *   get:
- *     summary: Get student count grouped by department
+ *     summary: Get total students and 1st-to-4th year counts
  *     tags: [Students]
  *     description: |
- *       Returns department-wise student counts.
- *
- *       **Access:** Any authenticated user (STUDENT, FACULTY, ADMIN)
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Department-wise counts fetched successfully
- *       401:
- *         description: Unauthorized (JWT missing or invalid)
- *       500:
- *         description: Server error
- */
-router.get('/department-wise', protect, getStudentDepartmentWise);
-
-/**
- * @swagger
- * /api/students/stats:
- *   get:
- *     summary: Get student stats (total + year-wise) for an optional department
- *     tags: [Students]
- *     description: |
- *       Returns total students and year-wise stats, optionally filtered by departmentId.
+ *       Returns total students and year-wise counts.
+ *       Optional `departmentId` filter is supported.
  *
  *       **Access:** Any authenticated user (STUDENT, FACULTY, ADMIN)
  *     security:
@@ -463,36 +449,35 @@ router.get('/department-wise', protect, getStudentDepartmentWise);
  *           type: string
  *     responses:
  *       200:
- *         description: Student stats fetched successfully
+ *         description: Student year-wise stats fetched successfully
  *       401:
  *         description: Unauthorized (JWT missing or invalid)
  *       500:
  *         description: Server error
  */
-router.get('/stats', protect, getStudentStats);
+router.get('/stats/year-wise', protect, getStudentStats);
 
 /**
  * @swagger
- * /api/students/department-summary:
+ * /api/students/stats/department-wise:
  *   get:
- *     summary: Get summary of students grouped by current section for logged-in department
+ *     summary: Get department-wise student count with 1st-to-4th year split
  *     tags: [Students]
  *     description: |
- *       Returns current-section summary for the department present in authenticated user context.
+ *       Returns department-wise totals and year-wise counts.
+ *       Uses current student records and groups by department and year derived from semester number.
  *
  *       **Access:** Any authenticated user (STUDENT, FACULTY, ADMIN)
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Department summary fetched successfully
- *       400:
- *         description: Department missing in token
+ *         description: Department-wise student stats fetched successfully
  *       401:
  *         description: Unauthorized (JWT missing or invalid)
  *       500:
  *         description: Server error
  */
-router.get('/department-summary', protect, getDepartmentSummary);
+router.get('/stats/department-wise', protect, getStudentDepartmentWise);
 
 export default router;

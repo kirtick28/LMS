@@ -23,6 +23,13 @@ const studentSchema = new mongoose.Schema(
       index: true
     },
 
+    sectionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Section',
+      required: true,
+      index: true
+    },
+
     firstName: {
       type: String,
       required: true,
@@ -40,12 +47,46 @@ const studentSchema = new mongoose.Schema(
       required: true,
       unique: true,
       uppercase: true,
-      trim: true
+      trim: true,
+      index: true
     },
 
     rollNumber: {
       type: String,
       trim: true
+    },
+
+    gender: {
+      type: String,
+      enum: ['Male', 'Female', 'Other']
+    },
+
+    dateOfBirth: {
+      type: Date
+    },
+
+    semesterNumber: {
+      type: Number,
+      min: 1,
+      max: 12,
+      default: 1,
+      index: true
+    },
+
+    academicYear: {
+      startYear: {
+        type: Number,
+        index: true
+      },
+      endYear: {
+        type: Number,
+        index: true
+      },
+      name: {
+        type: String,
+        trim: true,
+        index: true
+      }
     },
 
     entryType: {
@@ -61,29 +102,11 @@ const studentSchema = new mongoose.Schema(
       index: true
     },
 
-    // 🌟 The Updated History Array (Replaces Section ID)
-    academicHistory: [
-      {
-        academicYearId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'AcademicYear',
-          required: true
-        },
-        semesterNumber: {
-          type: Number,
-          required: true
-        },
-        sectionId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'Section',
-          required: true
-        },
-        isCurrent: {
-          type: Boolean,
-          default: false // Set to true when adding the active semester
-        }
-      }
-    ]
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true
+    }
   },
   { timestamps: true }
 );
@@ -91,11 +114,11 @@ const studentSchema = new mongoose.Schema(
 /* ---------------- COMPOUND INDEXES ---------------- */
 studentSchema.index({ batchId: 1, academicStatus: 1 });
 studentSchema.index({ departmentId: 1, academicStatus: 1 });
-
-// Indexing inside the array to quickly find students in a specific current section
+studentSchema.index({ sectionId: 1, semesterNumber: 1, isActive: 1 });
 studentSchema.index({
-  'academicHistory.sectionId': 1,
-  'academicHistory.isCurrent': 1
+  batchId: 1,
+  semesterNumber: 1,
+  'academicYear.startYear': 1
 });
 
 /* ---------------- VIRTUALS ---------------- */
@@ -103,15 +126,16 @@ studentSchema.virtual('fullName').get(function () {
   return `${this.firstName} ${this.lastName}`;
 });
 
-// A helpful virtual to instantly grab the student's current enrollment record
-studentSchema.virtual('currentEnrollment').get(function () {
-  return this.academicHistory.find((history) => history.isCurrent === true);
+/* ---------------- MIDDLEWARE ---------------- */
+studentSchema.pre('validate', function () {
+  if (this.academicStatus) {
+    this.isActive = !['DISCONTINUED', 'DROPPED', 'GRADUATED'].includes(
+      this.academicStatus
+    );
+  }
 });
 
 studentSchema.set('toJSON', { virtuals: true });
 studentSchema.set('toObject', { virtuals: true });
-
-/* ---------------- DOCUMENT MIDDLEWARE ---------------- */
-// Add logic here if you want to automatically set initial history on creation
 
 export default mongoose.model('Student', studentSchema);

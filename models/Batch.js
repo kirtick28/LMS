@@ -2,13 +2,6 @@ import mongoose from 'mongoose';
 
 const batchSchema = new mongoose.Schema(
   {
-    name: {
-      type: String,
-      required: true,
-      unique: true,
-      trim: true
-    },
-
     departmentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Department',
@@ -16,20 +9,33 @@ const batchSchema = new mongoose.Schema(
       index: true
     },
 
-    admissionYear: {
+    regulationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Regulation',
+      required: true,
+      index: true
+    },
+
+    startYear: {
       type: Number,
       required: true,
       index: true
     },
 
-    graduationYear: {
+    endYear: {
       type: Number,
       required: true
     },
 
     programDuration: {
       type: Number,
-      default: 4
+      default: 4,
+      min: 1
+    },
+
+    name: {
+      type: String,
+      trim: true
     },
 
     isActive: {
@@ -41,10 +47,24 @@ const batchSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/* ---------------- VALIDATION ---------------- */
+/* ---------------- INDEXES ---------------- */
+batchSchema.index(
+  { departmentId: 1, startYear: 1, endYear: 1 },
+  { unique: true }
+);
+
+/* ---------------- MIDDLEWARE ---------------- */
 batchSchema.pre('validate', function () {
-  if (this.admissionYear >= this.graduationYear) {
-    throw new Error('graduationYear must be greater than admissionYear');
+  if (!this.endYear && this.startYear && this.programDuration) {
+    this.endYear = this.startYear + this.programDuration;
+  }
+
+  if (!this.name && this.startYear && this.endYear) {
+    this.name = `${this.startYear}-${this.endYear}`;
+  }
+
+  if (this.startYear >= this.endYear) {
+    throw new Error('endYear must be greater than startYear');
   }
 });
 

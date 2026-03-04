@@ -2,17 +2,31 @@ import mongoose from 'mongoose';
 
 const subjectSchema = new mongoose.Schema(
   {
-    code: {
-      type: String,
-      required: true,
-      uppercase: true,
-      trim: true
-    },
-
     name: {
       type: String,
       required: true,
       trim: true
+    },
+
+    code: {
+      type: String,
+      required: true,
+      unique: true,
+      uppercase: true,
+      trim: true,
+      index: true
+    },
+
+    credits: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+
+    courseType: {
+      type: String,
+      enum: ['T', 'P', 'TP', 'TPJ', 'PJ', 'I'],
+      default: 'T'
     },
 
     departmentId: {
@@ -20,19 +34,6 @@ const subjectSchema = new mongoose.Schema(
       ref: 'Department',
       required: true,
       index: true
-    },
-
-    regulation: {
-      type: String,
-      required: true,
-      trim: true,
-      index: true
-    },
-
-    type: {
-      type: String,
-      enum: ['T', 'P', 'TP', 'TPJ', 'PJ', 'I'],
-      required: true
     },
 
     isActive: {
@@ -44,17 +45,8 @@ const subjectSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/* Unique per regulation + department */
-subjectSchema.index(
-  { code: 1, regulation: 1, departmentId: 1 },
-  { unique: true }
-);
-
-/* Fast filtering */
-subjectSchema.index({
-  departmentId: 1,
-  regulation: 1,
-  isActive: 1
-});
+/* ---------------- INDEXES ---------------- */
+subjectSchema.index({ departmentId: 1, isActive: 1 });
+subjectSchema.index({ departmentId: 1, code: 1 }, { unique: true });
 
 export default mongoose.model('Subject', subjectSchema);

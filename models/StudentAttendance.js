@@ -1,31 +1,35 @@
 import mongoose from 'mongoose';
 
-const studentAttendanceSchema = new mongoose.Schema(
+const attendanceRecordSchema = new mongoose.Schema(
   {
     studentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Student',
-      required: true,
-      index: true
-    },
-
-    facultyAssignmentId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'FacultyAssignment',
-      required: true,
-      index: true
-    },
-
-    academicYearId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'AcademicYear',
-      required: true,
-      index: true
-    },
-
-    semesterNumber: {
-      type: Number,
       required: true
+    },
+
+    status: {
+      type: String,
+      enum: ['present', 'absent', 'on-duty'],
+      required: true
+    },
+
+    markedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Faculty',
+      default: null
+    }
+  },
+  { _id: false }
+);
+
+const attendanceSchema = new mongoose.Schema(
+  {
+    classroomId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Classroom',
+      required: true,
+      index: true
     },
 
     date: {
@@ -34,32 +38,22 @@ const studentAttendanceSchema = new mongoose.Schema(
       index: true
     },
 
-    slotNumber: {
-      type: Number,
-      required: true,
-      min: 1,
-      max: 8
-    },
-
-    status: {
-      type: String,
-      enum: ['Present', 'Absent', 'On-Duty'],
-      required: true
+    records: {
+      type: [attendanceRecordSchema],
+      default: []
     },
 
     markedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Faculty',
-      required: true
+      default: null
     }
   },
   { timestamps: true }
 );
 
-// Prevent duplicate attendance entry
-studentAttendanceSchema.index(
-  { studentId: 1, facultyAssignmentId: 1, date: 1, slotNumber: 1 },
-  { unique: true }
-);
+/* ---------------- INDEXES ---------------- */
+attendanceSchema.index({ classroomId: 1, date: 1 }, { unique: true });
+attendanceSchema.index({ 'records.studentId': 1, date: 1 });
 
-export default mongoose.model('StudentAttendance', studentAttendanceSchema);
+export default mongoose.model('Attendance', attendanceSchema);

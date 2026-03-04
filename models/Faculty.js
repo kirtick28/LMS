@@ -33,9 +33,8 @@ const facultySchema = new mongoose.Schema(
       trim: true
     },
 
-    mobileNumber: {
+    phone: {
       type: String,
-      required: true,
       trim: true,
       match: /^[0-9]{10}$/
     },
@@ -45,7 +44,8 @@ const facultySchema = new mongoose.Schema(
       required: true,
       unique: true,
       uppercase: true,
-      trim: true
+      trim: true,
+      index: true
     },
 
     profileImage: {
@@ -57,15 +57,15 @@ const facultySchema = new mongoose.Schema(
       type: String,
       enum: [
         'Professor',
-        'Assistant Professor',
         'Associate Professor',
+        'Assistant Professor',
         'HOD',
         'Dean',
         'Faculty',
         'Professor of Practice',
         'Lab Technician',
-        'Department Secretary',
-        'Senior Lab Technician'
+        'Senior Lab Technician',
+        'Department Secretary'
       ],
       required: true
     },
@@ -80,7 +80,9 @@ const facultySchema = new mongoose.Schema(
       trim: true
     },
 
-    joiningDate: Date,
+    joiningDate: {
+      type: Date
+    },
 
     reportingManager: {
       type: mongoose.Schema.Types.ObjectId,
@@ -100,6 +102,12 @@ const facultySchema = new mongoose.Schema(
       index: true
     },
 
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true
+    },
+
     documents: {
       marksheet: { type: String, default: null },
       experienceCertificate: { type: String, default: null },
@@ -115,6 +123,13 @@ facultySchema.index({ departmentId: 1, employmentStatus: 1 });
 /* ---------------- VIRTUALS ---------------- */
 facultySchema.virtual('fullName').get(function () {
   return `${this.firstName} ${this.lastName}`;
+});
+
+/* ---------------- MIDDLEWARE ---------------- */
+facultySchema.pre('validate', function () {
+  if (this.employmentStatus) {
+    this.isActive = !['RESIGNED', 'RETIRED'].includes(this.employmentStatus);
+  }
 });
 
 facultySchema.set('toJSON', { virtuals: true });

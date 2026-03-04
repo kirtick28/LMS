@@ -4,18 +4,9 @@ import Faculty from '../models/Faculty.js';
 import User from '../models/User.js';
 import Department from '../models/Department.js';
 
-const DESIGNATION_ENUM = [
-  'Professor',
-  'Assistant Professor',
-  'Associate Professor',
-  'HOD',
-  'Dean',
-  'Faculty',
-  'Professor of Practice',
-  'Lab Technician',
-  'Department Secretary',
-  'Senior Lab Technician'
-];
+/* =========================
+   HELPERS
+========================= */
 
 const normalizeKey = (key) =>
   key.toString().trim().toLowerCase().replace(/\s+/g, '').replace(/[_-]/g, '');
@@ -86,6 +77,50 @@ const parseDateValue = (value) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const normalizeExcelRow = (row) => {
+  const normalized = {};
+
+  for (const [key, value] of Object.entries(row || {})) {
+    normalized[normalizeKey(key)] = value;
+  }
+
+  return {
+    email: clean(
+      getNorm(normalized, 'email', 'emailaddress', 'mail', 'mailid')
+    ).toLowerCase(),
+    password: clean(getNorm(normalized, 'password', 'pass')),
+    firstName: clean(getNorm(normalized, 'firstname', 'fname', 'name')),
+    lastName: clean(getNorm(normalized, 'lastname', 'lname', 'surname')),
+    phone: clean(
+      getNorm(normalized, 'mobilenumber', 'mobilenumber1', 'mobile', 'phone')
+    ),
+    employeeId: clean(
+      getNorm(normalized, 'employeeid', 'empid', 'employeecode')
+    ).toUpperCase(),
+    designation: getNorm(normalized, 'designation', 'role'),
+    departmentName: clean(
+      getNorm(normalized, 'departmentname', 'department', 'dept')
+    ),
+    departmentCode: clean(
+      getNorm(normalized, 'departmentcode', 'deptcode', 'code')
+    ),
+    qualification: clean(getNorm(normalized, 'qualification')),
+    workType: clean(getNorm(normalized, 'worktype', 'employmenttype')),
+    joiningDate: getNorm(normalized, 'joiningdate', 'doj'),
+    reportingManager: clean(
+      getNorm(normalized, 'reportingmanager', 'managerid')
+    ),
+    noticePeriod: clean(getNorm(normalized, 'noticeperiod')),
+    salutation: clean(getNorm(normalized, 'salutation')),
+    gender: clean(getNorm(normalized, 'gender')),
+    dateOfBirth: getNorm(normalized, 'dateofbirth', 'dob')
+  };
+};
+
+/* =========================
+   DEPARTMENT RESOLUTION
+========================= */
+
 const resolveDepartment = async (payload) => {
   const departmentId = clean(payload.departmentId);
 
@@ -117,9 +152,8 @@ const resolveDepartment = async (payload) => {
 
   return Department.create({
     name: departmentName,
-    shortName: departmentCode || undefined,
     code: departmentCode || normalizeCode(departmentName),
-    program: 'B.E',
+    program: 'B.E.',
     isActive: true
   });
 };
@@ -135,11 +169,14 @@ const resolveDepartmentFromParam = async (departmentParam) => {
   return Department.findOne({
     $or: [
       { name: { $regex: new RegExp(`^${cleaned}$`, 'i') } },
-      { shortName: { $regex: new RegExp(`^${cleaned}$`, 'i') } },
       { code: { $regex: new RegExp(`^${cleaned}$`, 'i') } }
     ]
   });
 };
+
+/* =========================
+   ADD FACULTY
+========================= */
 
 export const addFaculty = async (req, res) => {
   try {
@@ -151,6 +188,7 @@ export const addFaculty = async (req, res) => {
       dateOfBirth,
       email,
       mobileNumber,
+      phone,
       qualification,
       workType,
       employeeId,
@@ -161,10 +199,12 @@ export const addFaculty = async (req, res) => {
       password
     } = req.body;
 
-    if (!email || !firstName || !lastName || !employeeId || !mobileNumber) {
+    const inputPhone = mobileNumber || phone;
+
+    if (!email || !firstName || !lastName || !employeeId || !inputPhone) {
       return res.status(400).json({
         message:
-          'email, firstName, lastName, employeeId and mobileNumber are required'
+          'email, firstName, lastName, employeeId and mobileNumber/phone are required'
       });
     }
 
@@ -205,7 +245,7 @@ export const addFaculty = async (req, res) => {
       salutation,
       firstName: clean(firstName),
       lastName: clean(lastName),
-      mobileNumber: normalizePhone(mobileNumber),
+      phone: normalizePhone(inputPhone),
       employeeId: cleanEmployeeId,
       designation: normalizeDesignation(designation),
       qualification,
@@ -223,14 +263,22 @@ export const addFaculty = async (req, res) => {
       faculty
     });
   } catch (error) {
-    console.error('Add Faculty Error:', error);
     return res.status(500).json({ message: error.message });
   }
 };
 
+/* =========================
+   UPDATE FACULTY
+========================= */
+
 export const updateFaculty = async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid faculty id' });
+    }
+
     const faculty = await Faculty.findById(id);
 
     if (!faculty) {
@@ -238,12 +286,14 @@ export const updateFaculty = async (req, res) => {
     }
 
     const user = await User.findById(faculty.userId).select('+password');
+
     if (!user) {
       return res.status(404).json({ message: 'Linked user not found' });
     }
 
     if (req.body.email) {
       const updatedEmail = clean(req.body.email).toLowerCase();
+
       const duplicateEmail = await User.findOne({
         email: updatedEmail,
         _id: { $ne: user._id }
@@ -256,17 +306,18 @@ export const updateFaculty = async (req, res) => {
       user.email = updatedEmail;
     }
 
-    if (req.body.password) {
-      user.password = req.body.password;
-    }
-
+    if (req.body.password) user.password = req.body.password;
     if (req.body.gender !== undefined) user.gender = req.body.gender;
+
     if (req.body.dateOfBirth !== undefined) {
       user.dateOfBirth = parseDateValue(req.body.dateOfBirth);
     }
-    if (req.body.isActive !== undefined) user.isActive = !!req.body.isActive;
 
-    const updatableFacultyFields = [
+    if (req.body.isActive !== undefined) {
+      user.isActive = !!req.body.isActive;
+    }
+
+    const fields = [
       'salutation',
       'firstName',
       'lastName',
@@ -276,18 +327,19 @@ export const updateFaculty = async (req, res) => {
       'employmentStatus'
     ];
 
-    updatableFacultyFields.forEach((field) => {
+    fields.forEach((field) => {
       if (req.body[field] !== undefined) {
         faculty[field] = req.body[field];
       }
     });
 
-    if (req.body.mobileNumber !== undefined) {
-      faculty.mobileNumber = normalizePhone(req.body.mobileNumber);
+    if (req.body.mobileNumber !== undefined || req.body.phone !== undefined) {
+      faculty.phone = normalizePhone(req.body.mobileNumber || req.body.phone);
     }
 
     if (req.body.employeeId !== undefined) {
       const nextEmployeeId = clean(req.body.employeeId).toUpperCase();
+
       const duplicateEmployee = await Faculty.findOne({
         employeeId: nextEmployeeId,
         _id: { $ne: faculty._id }
@@ -321,23 +373,6 @@ export const updateFaculty = async (req, res) => {
       faculty.departmentId = department._id;
     }
 
-    if (req.files) {
-      faculty.documents = {
-        marksheet:
-          req.files?.marksheet?.[0]?.path ||
-          faculty.documents?.marksheet ||
-          null,
-        experienceCertificate:
-          req.files?.experienceCertificate?.[0]?.path ||
-          faculty.documents?.experienceCertificate ||
-          null,
-        degreeCertificate:
-          req.files?.degreeCertificate?.[0]?.path ||
-          faculty.documents?.degreeCertificate ||
-          null
-      };
-    }
-
     await Promise.all([faculty.save(), user.save()]);
 
     return res.json({
@@ -349,9 +384,17 @@ export const updateFaculty = async (req, res) => {
   }
 };
 
+/* =========================
+   DELETE FACULTY
+========================= */
+
 export const deleteFaculty = async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid faculty id' });
+    }
 
     const faculty = await Faculty.findById(id);
 
@@ -370,23 +413,22 @@ export const deleteFaculty = async (req, res) => {
   }
 };
 
+/* =========================
+   BULK UPLOAD FACULTY
+========================= */
+
 export const uploadMultipleFaculty = async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
 
     const workbook = req.file.buffer
       ? xlsx.read(req.file.buffer, { type: 'buffer' })
       : xlsx.readFile(req.file.path);
 
     const sheetName = workbook.SheetNames[0];
-    const rawRows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], {
-      raw: true,
-      defval: ''
-    });
-
-    if (!rawRows || rawRows.length === 0) {
-      return res.status(400).json({ message: 'Excel is empty or malformed' });
-    }
+    const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
     let usersCreated = 0;
     let usersUpdated = 0;
@@ -394,163 +436,189 @@ export const uploadMultipleFaculty = async (req, res) => {
     let facultyUpdated = 0;
     const failedRows = [];
 
-    for (let i = 0; i < rawRows.length; i++) {
+    for (let index = 0; index < rows.length; index++) {
+      const rowNumber = index + 2;
+
       try {
-        const row = rawRows[i];
-        const normalized = {};
+        const payload = normalizeExcelRow(rows[index]);
 
-        Object.keys(row).forEach((key) => {
-          normalized[normalizeKey(key)] = row[key];
-        });
-
-        const email =
-          clean(
-            getNorm(normalized, 'email', 'mail', 'emailaddress', 'emailid')
-          ) || `autogen${Date.now()}${i}@college.edu`;
-        const cleanEmail = email.toLowerCase();
-
-        const rawName = getNorm(normalized, 'name', 'fullname');
-        const firstName = clean(
-          getNorm(normalized, 'firstname', 'first') ||
-            (rawName ? String(rawName).split(' ')[0] : `User${i + 1}`)
-        );
-        const lastName = clean(
-          getNorm(normalized, 'lastname', 'last') ||
-            (rawName
-              ? String(rawName).split(' ').slice(1).join(' ')
-              : `Auto${i + 1}`)
-        );
-
-        const mobileNumber = normalizePhone(
-          getNorm(normalized, 'phonenumber', 'phone', 'mobile', 'mobilenumber')
-        );
-
-        const employeeId =
-          clean(
-            getNorm(normalized, 'employeeid', 'empid', 'employeeidnumber')
-          ) || `EMP${Date.now()}${i + 1}`;
-
-        const departmentPayload = {
-          departmentId: clean(getNorm(normalized, 'departmentid')),
-          departmentName:
-            clean(
-              getNorm(normalized, 'department', 'dept', 'departmentname')
-            ) || 'General Department',
-          departmentCode: clean(
-            getNorm(normalized, 'departmentcode', 'deptcode')
-          )
-        };
-
-        const department = await resolveDepartment(departmentPayload);
-
-        const rawPassword =
-          clean(getNorm(normalized, 'password', 'pwd')) || '123456';
-
-        let user = await User.findOne({ email: cleanEmail });
-
-        if (user) {
-          user.role = 'FACULTY';
-          user.profileType = 'Faculty';
-
-          if (getNorm(normalized, 'gender'))
-            user.gender = getNorm(normalized, 'gender');
-
-          const dob = parseDateValue(getNorm(normalized, 'dateofbirth'));
-          if (dob) user.dateOfBirth = dob;
-
-          if (rawPassword) user.password = rawPassword;
-
-          await user.save();
-          usersUpdated++;
-        } else {
-          user = await User.create({
-            email: cleanEmail,
-            password: rawPassword,
-            role: 'FACULTY',
-            profileType: 'Faculty',
-            gender: getNorm(normalized, 'gender') || undefined,
-            dateOfBirth:
-              parseDateValue(getNorm(normalized, 'dateofbirth')) || undefined
-          });
-          usersCreated++;
+        if (
+          !payload.email ||
+          !payload.firstName ||
+          !payload.lastName ||
+          !payload.employeeId ||
+          !payload.phone
+        ) {
+          throw new Error(
+            'email, firstName, lastName, employeeId and mobileNumber/phone are required'
+          );
         }
 
-        const facultyPayload = {
-          departmentId: department._id,
-          salutation: clean(getNorm(normalized, 'salutation')) || undefined,
-          firstName,
-          lastName,
-          mobileNumber,
-          employeeId: String(employeeId).toUpperCase(),
-          designation: normalizeDesignation(getNorm(normalized, 'designation')),
-          qualification:
-            clean(getNorm(normalized, 'qualification')) || undefined,
-          workType: clean(getNorm(normalized, 'worktype')) || undefined,
-          joiningDate: parseDateValue(getNorm(normalized, 'joiningdate')),
-          noticePeriod: clean(getNorm(normalized, 'noticeperiod')) || undefined,
-          reportingManager:
-            clean(getNorm(normalized, 'reportingmanagerid')) || null
-        };
+        const department = await resolveDepartment(payload);
 
-        let faculty = await Faculty.findOne({
-          $or: [{ userId: user._id }, { employeeId: facultyPayload.employeeId }]
-        });
+        let user = await User.findOne({ email: payload.email });
+        let faculty = await Faculty.findOne({ employeeId: payload.employeeId });
+
+        if (!user && !faculty) {
+          user = await User.create({
+            email: payload.email,
+            password: payload.password || '123456',
+            role: 'FACULTY',
+            profileType: 'Faculty',
+            gender: payload.gender || undefined,
+            dateOfBirth: parseDateValue(payload.dateOfBirth) || undefined
+          });
+          usersCreated++;
+
+          faculty = await Faculty.create({
+            userId: user._id,
+            departmentId: department._id,
+            salutation: payload.salutation || undefined,
+            firstName: payload.firstName,
+            lastName: payload.lastName,
+            phone: normalizePhone(payload.phone),
+            employeeId: payload.employeeId,
+            designation: normalizeDesignation(payload.designation),
+            qualification: payload.qualification || undefined,
+            workType: payload.workType || undefined,
+            joiningDate: parseDateValue(payload.joiningDate) || undefined,
+            reportingManager: payload.reportingManager || null,
+            noticePeriod: payload.noticePeriod || undefined
+          });
+          facultyCreated++;
+
+          user.profileRef = faculty._id;
+          await user.save();
+          continue;
+        }
+
+        if (!user && faculty) {
+          user = await User.create({
+            email: payload.email,
+            password: payload.password || '123456',
+            role: 'FACULTY',
+            profileType: 'Faculty',
+            gender: payload.gender || undefined,
+            dateOfBirth: parseDateValue(payload.dateOfBirth) || undefined,
+            profileRef: faculty._id
+          });
+          usersCreated++;
+
+          faculty.userId = user._id;
+        } else if (user) {
+          user.gender = payload.gender || user.gender;
+          const parsedDob = parseDateValue(payload.dateOfBirth);
+          if (parsedDob) user.dateOfBirth = parsedDob;
+          if (user.role !== 'FACULTY') {
+            user.role = 'FACULTY';
+          }
+          user.profileType = 'Faculty';
+          usersUpdated++;
+
+          if (!faculty) {
+            faculty = await Faculty.findOne({ userId: user._id });
+          }
+        }
 
         if (faculty) {
-          Object.keys(facultyPayload).forEach((key) => {
-            if (facultyPayload[key] !== undefined) {
-              faculty[key] = facultyPayload[key];
-            }
-          });
+          faculty.departmentId = department._id;
+          faculty.salutation = payload.salutation || faculty.salutation;
+          faculty.firstName = payload.firstName || faculty.firstName;
+          faculty.lastName = payload.lastName || faculty.lastName;
+          faculty.phone = normalizePhone(payload.phone || faculty.phone);
+          faculty.employeeId = payload.employeeId || faculty.employeeId;
+          faculty.designation = normalizeDesignation(
+            payload.designation || faculty.designation
+          );
+          faculty.qualification =
+            payload.qualification || faculty.qualification;
+          faculty.workType = payload.workType || faculty.workType;
+          faculty.noticePeriod = payload.noticePeriod || faculty.noticePeriod;
+
+          const parsedJoining = parseDateValue(payload.joiningDate);
+          if (parsedJoining) faculty.joiningDate = parsedJoining;
+
+          if (payload.reportingManager !== undefined) {
+            faculty.reportingManager = payload.reportingManager || null;
+          }
+
+          if (faculty.isNew) {
+            facultyCreated++;
+          } else {
+            facultyUpdated++;
+          }
+
           await faculty.save();
-          facultyUpdated++;
         } else {
           faculty = await Faculty.create({
             userId: user._id,
-            ...facultyPayload
+            departmentId: department._id,
+            salutation: payload.salutation || undefined,
+            firstName: payload.firstName,
+            lastName: payload.lastName,
+            phone: normalizePhone(payload.phone),
+            employeeId: payload.employeeId,
+            designation: normalizeDesignation(payload.designation),
+            qualification: payload.qualification || undefined,
+            workType: payload.workType || undefined,
+            joiningDate: parseDateValue(payload.joiningDate) || undefined,
+            reportingManager: payload.reportingManager || null,
+            noticePeriod: payload.noticePeriod || undefined
           });
           facultyCreated++;
         }
 
-        user.profileRef = faculty._id;
-        user.profileType = 'Faculty';
+        if (user.profileRef?.toString() !== faculty._id.toString()) {
+          user.profileRef = faculty._id;
+        }
+
         await user.save();
-      } catch (rowError) {
+      } catch (error) {
         failedRows.push({
-          row: i + 2,
-          error: rowError.message || 'Unknown row error'
+          row: rowNumber,
+          message: error.message
         });
       }
     }
 
-    return res.status(200).json({
-      message: 'Faculty + User sync completed',
+    return res.json({
+      message: 'Faculty upload sync completed',
       usersCreated,
       usersUpdated,
       facultyCreated,
       facultyUpdated,
       failedCount: failedRows.length,
-      failedRows: failedRows.slice(0, 20)
+      failedRows
     });
   } catch (error) {
-    console.error('Upload Faculty Error:', error);
     return res.status(500).json({ message: error.message });
   }
 };
 
+/* =========================
+   GET ALL FACULTY
+========================= */
+
 export const getAllFaculty = async (req, res) => {
   try {
     const { departmentId, designation, employmentStatus } = req.query;
+
     const filter = {};
 
-    if (departmentId) filter.departmentId = departmentId;
+    if (departmentId) {
+      if (!mongoose.Types.ObjectId.isValid(departmentId)) {
+        return res.status(400).json({ message: 'Invalid departmentId' });
+      }
+      filter.departmentId = departmentId;
+    }
+
     if (designation) filter.designation = designation;
     if (employmentStatus) filter.employmentStatus = employmentStatus;
 
     const facultyList = await Faculty.find(filter)
       .sort({ firstName: 1 })
       .populate('userId', 'email role isActive gender dateOfBirth')
-      .populate('departmentId', 'name code shortName')
+      .populate('departmentId', 'name code')
       .populate(
         'reportingManager',
         'firstName lastName employeeId designation'
@@ -561,6 +629,10 @@ export const getAllFaculty = async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 };
+
+/* =========================
+   DEPARTMENT WISE COUNT
+========================= */
 
 export const getDepartmentWise = async (req, res) => {
   try {
@@ -603,101 +675,99 @@ export const getDepartmentWise = async (req, res) => {
   }
 };
 
+/* =========================
+   DEPARTMENT WISE DESIGNATION SUMMARY
+========================= */
+
 export const getDepartmentWiseFaculty = async (req, res) => {
   try {
-    const { department } = req.params;
-    const departmentDoc = await resolveDepartmentFromParam(department);
+    const department = await resolveDepartmentFromParam(req.params.department);
 
-    if (!departmentDoc) {
+    if (!department) {
       return res.status(404).json({ message: 'Department not found' });
     }
 
-    const data = await Faculty.aggregate([
-      {
-        $match: {
-          departmentId: departmentDoc._id
-        }
-      },
+    const rows = await Faculty.aggregate([
+      { $match: { departmentId: department._id } },
       {
         $group: {
           _id: '$designation',
           count: { $sum: 1 }
         }
       },
-      {
-        $project: {
-          _id: 0,
-          designation: '$_id',
-          count: 1
-        }
-      },
-      { $sort: { designation: 1 } }
+      { $sort: { _id: 1 } }
     ]);
 
-    let professor = 0;
-    let assistant = 0;
-    let associate = 0;
+    const designationSummary = rows.reduce((acc, row) => {
+      acc[row._id] = row.count;
+      return acc;
+    }, {});
 
-    data.forEach((row) => {
-      const des = String(row.designation || '').toLowerCase();
-      if (des.includes('assistant')) assistant += row.count;
-      else if (des.includes('associate')) associate += row.count;
-      else if (des.includes('professor')) professor += row.count;
+    const categorySummary = {
+      deansAndHods: 0,
+      professors: 0,
+      associateAssistant: 0,
+      others: 0
+    };
+
+    rows.forEach((row) => {
+      const key = String(row._id || '').toLowerCase();
+
+      if (key.includes('dean') || key.includes('hod')) {
+        categorySummary.deansAndHods += row.count;
+      } else if (key === 'professor') {
+        categorySummary.professors += row.count;
+      } else if (key.includes('associate') || key.includes('assistant')) {
+        categorySummary.associateAssistant += row.count;
+      } else {
+        categorySummary.others += row.count;
+      }
     });
 
     return res.json({
-      departmentId: departmentDoc._id,
-      departmentName: departmentDoc.name,
-      byDesignation: data,
-      categorySummary: [
-        { Class: '1st', Designation: 'Professor', Count: professor },
-        { Class: '2nd', Designation: 'Assistant Professor', Count: assistant },
-        { Class: '3rd', Designation: 'Associate Professor', Count: associate }
-      ]
+      department: {
+        _id: department._id,
+        name: department.name,
+        code: department.code
+      },
+      total: rows.reduce((sum, row) => sum + row.count, 0),
+      designationSummary,
+      categorySummary
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
 };
+
+/* =========================
+   DEPARTMENT WISE FACULTY LIST
+========================= */
 
 export const getDepartmentWiseFacultyList = async (req, res) => {
   try {
-    const { department } = req.params;
+    const department = await resolveDepartmentFromParam(req.params.department);
 
     if (!department) {
-      return res.status(400).json({ message: 'Department is required' });
-    }
-
-    const departmentDoc = await resolveDepartmentFromParam(department);
-    if (!departmentDoc) {
       return res.status(404).json({ message: 'Department not found' });
     }
 
-    const facultyList = await Faculty.find({
-      departmentId: departmentDoc._id
-    })
-      .populate('userId', 'email role isActive')
-      .sort({ firstName: 1 });
+    const faculty = await Faculty.find({ departmentId: department._id })
+      .sort({ firstName: 1, lastName: 1 })
+      .populate('userId', 'email role isActive gender dateOfBirth')
+      .populate('departmentId', 'name code');
 
-    return res.status(200).json({
-      total: facultyList.length,
-      faculty: facultyList.map((faculty) => ({
-        _id: faculty._id,
-        firstName: faculty.firstName,
-        lastName: faculty.lastName,
-        email: faculty.userId?.email || null,
-        mobileNumber: faculty.mobileNumber,
-        employeeId: faculty.employeeId,
-        designation: faculty.designation,
-        employmentStatus: faculty.employmentStatus,
-        departmentId: faculty.departmentId
-      }))
+    return res.json({
+      total: faculty.length,
+      faculty
     });
   } catch (error) {
-    console.error('Get Department Faculty Error:', error);
     return res.status(500).json({ message: error.message });
   }
 };
+
+/* =========================
+   DASHBOARD STATS
+========================= */
 
 export const getDashboardStats = async (req, res) => {
   try {
@@ -743,21 +813,7 @@ export const getDashboardStats = async (req, res) => {
       }
     ]);
 
-    const statusAgg = await Faculty.aggregate([
-      {
-        $group: {
-          _id: '$employmentStatus',
-          count: { $sum: 1 }
-        }
-      }
-    ]);
-
     const stats = agg.reduce((acc, item) => {
-      acc[item._id] = item.count;
-      return acc;
-    }, {});
-
-    const employmentStatus = statusAgg.reduce((acc, item) => {
       acc[item._id] = item.count;
       return acc;
     }, {});
@@ -767,8 +823,7 @@ export const getDashboardStats = async (req, res) => {
       deansAndHods: stats.deanHod || 0,
       professors: stats.professor || 0,
       associateAssistant: (stats.associate || 0) + (stats.assistant || 0),
-      others: stats.other || 0,
-      employmentStatus
+      others: stats.other || 0
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });

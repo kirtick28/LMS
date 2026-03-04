@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-const ClassroomMemberSchema = new mongoose.Schema(
+const classroomMemberSchema = new mongoose.Schema(
   {
     classroomId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -11,20 +11,30 @@ const ClassroomMemberSchema = new mongoose.Schema(
 
     userId: {
       type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
       required: true,
-      refPath: 'userModel'
+      index: true
     },
 
-    userModel: {
-      type: String,
-      required: true,
-      enum: ['Student', 'Faculty']
+    studentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Student',
+      default: null,
+      index: true
+    },
+
+    facultyId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Faculty',
+      default: null,
+      index: true
     },
 
     role: {
       type: String,
       enum: ['student', 'faculty'],
-      required: true
+      required: true,
+      index: true
     },
 
     facultyAccessLevel: {
@@ -37,12 +47,30 @@ const ClassroomMemberSchema = new mongoose.Schema(
       type: String,
       enum: ['auto', 'invite', 'self'],
       required: true
+    },
+
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true
     }
   },
   { timestamps: true }
 );
 
-// Prevent duplicate membership
-ClassroomMemberSchema.index({ classroomId: 1, userId: 1 }, { unique: true });
+/* ---------------- INDEXES ---------------- */
+classroomMemberSchema.index({ classroomId: 1, userId: 1 }, { unique: true });
+classroomMemberSchema.index({ classroomId: 1, role: 1 });
 
-export default mongoose.model('ClassroomMember', ClassroomMemberSchema);
+/* ---------------- MIDDLEWARE ---------------- */
+classroomMemberSchema.pre('validate', function () {
+  if (this.role === 'student' && !this.studentId) {
+    throw new Error('studentId is required when role is student');
+  }
+
+  if (this.role === 'faculty' && !this.facultyId) {
+    throw new Error('facultyId is required when role is faculty');
+  }
+});
+
+export default mongoose.model('ClassroomMember', classroomMemberSchema);

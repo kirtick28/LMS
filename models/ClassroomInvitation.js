@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-const ClassroomInvitationSchema = new mongoose.Schema(
+const classroomInvitationSchema = new mongoose.Schema(
   {
     classroomId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -13,25 +13,30 @@ const ClassroomInvitationSchema = new mongoose.Schema(
       type: String,
       required: true,
       lowercase: true,
-      trim: true
+      trim: true,
+      index: true,
+      match: [/^\S+@\S+\.\S+$/, 'Please use a valid email address']
     },
 
     invitedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Faculty',
-      required: true
+      required: true,
+      index: true
     },
 
     role: {
       type: String,
       enum: ['student', 'faculty'],
-      required: true
+      required: true,
+      index: true
     },
 
     status: {
       type: String,
-      enum: ['Pending', 'Accepted', 'Rejected', 'Expired'],
-      default: 'Pending'
+      enum: ['pending', 'accepted', 'rejected', 'expired'],
+      default: 'pending',
+      index: true
     },
 
     token: {
@@ -43,10 +48,26 @@ const ClassroomInvitationSchema = new mongoose.Schema(
 
     expiresAt: {
       type: Date,
-      required: true
+      required: true,
+      index: true
+    },
+
+    acceptedAt: {
+      type: Date,
+      default: null
     }
   },
   { timestamps: true }
 );
 
-export default mongoose.model('ClassroomInvitation', ClassroomInvitationSchema);
+/* ---------------- INDEXES ---------------- */
+classroomInvitationSchema.index({ classroomId: 1, email: 1, status: 1 });
+
+/* ---------------- MIDDLEWARE ---------------- */
+classroomInvitationSchema.pre('validate', function () {
+  if (this.status === 'accepted' && !this.acceptedAt) {
+    this.acceptedAt = new Date();
+  }
+});
+
+export default mongoose.model('ClassroomInvitation', classroomInvitationSchema);

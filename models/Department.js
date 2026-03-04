@@ -9,23 +9,19 @@ const departmentSchema = new mongoose.Schema(
       unique: true
     },
 
-    shortName: {
-      type: String,
-      trim: true
-    },
-
     code: {
       type: String,
       required: true,
       unique: true,
       uppercase: true,
-      trim: true
+      trim: true,
+      index: true
     },
 
     program: {
       type: String,
-      enum: ['B.E', 'B.Tech'],
-      default: 'B.E',
+      enum: ['B.E.', 'B.Tech.'],
+      default: 'B.E.',
       required: true
     },
 
@@ -43,5 +39,17 @@ const departmentSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+/* ---------------- INDEXES ---------------- */
+
+/* ---------------- MIDDLEWARE ---------------- */
+departmentSchema.pre('validate', function () {
+  if (this.code) {
+    this.code = String(this.code)
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+      .slice(0, 10);
+  }
+});
 
 export default mongoose.model('Department', departmentSchema);

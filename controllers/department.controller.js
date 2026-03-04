@@ -9,7 +9,11 @@ export const createDepartment = async (req, res) => {
     const { name, code, program, hodId, isActive } = req.body;
 
     if (!name || !code) {
-      return res.status(400).json({ message: 'name and code are required' });
+      return res.status(400).json({
+        success: false,
+        message: 'name and code are required',
+        data: null
+      });
     }
 
     const normalizedName = String(name).trim();
@@ -20,9 +24,11 @@ export const createDepartment = async (req, res) => {
     });
 
     if (existing) {
-      return res
-        .status(409)
-        .json({ message: 'Department with same name or code already exists' });
+      return res.status(409).json({
+        success: false,
+        message: 'Department with same name or code already exists',
+        data: null
+      });
     }
 
     const department = await Department.create({
@@ -30,15 +36,22 @@ export const createDepartment = async (req, res) => {
       code: normalizedCode,
       program,
       hodId: hodId || null,
-      isActive
+      isActive: isActive || true
     });
 
     return res.status(201).json({
+      success: true,
       message: 'Department created successfully',
-      department
+      data: {
+        department
+      }
     });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: null
+    });
   }
 };
 
@@ -59,9 +72,18 @@ export const getAllDepartments = async (req, res) => {
       .populate('hodId', 'firstName lastName employeeId designation')
       .sort({ name: 1 });
 
-    return res.json(departments);
+    return res.json({
+      success: true,
+      data: {
+        departments
+      }
+    });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: null
+    });
   }
 };
 
@@ -73,7 +95,11 @@ export const getDepartmentById = async (req, res) => {
     const { id } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid department id' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid department id',
+        data: null
+      });
     }
 
     const department = await Department.findById(id).populate(
@@ -82,12 +108,25 @@ export const getDepartmentById = async (req, res) => {
     );
 
     if (!department) {
-      return res.status(404).json({ message: 'Department not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Department not found',
+        data: null
+      });
     }
 
-    return res.json(department);
+    return res.json({
+      success: true,
+      data: {
+        department
+      }
+    });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: null
+    });
   }
 };
 
@@ -100,7 +139,11 @@ export const updateDepartment = async (req, res) => {
     const updates = { ...req.body };
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid department id' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid department id',
+        data: null
+      });
     }
 
     if (updates.name) {
@@ -110,9 +153,11 @@ export const updateDepartment = async (req, res) => {
       });
 
       if (duplicate) {
-        return res
-          .status(409)
-          .json({ message: 'Department name already exists' });
+        return res.status(409).json({
+          success: false,
+          message: 'Department name already exists',
+          data: null
+        });
       }
 
       updates.name = String(updates.name).trim();
@@ -127,9 +172,11 @@ export const updateDepartment = async (req, res) => {
       });
 
       if (duplicateCode) {
-        return res
-          .status(409)
-          .json({ message: 'Department code already exists' });
+        return res.status(409).json({
+          success: false,
+          message: 'Department code already exists',
+          data: null
+        });
       }
 
       updates.code = normalizedCode;
@@ -141,15 +188,26 @@ export const updateDepartment = async (req, res) => {
     }).populate('hodId', 'firstName lastName employeeId designation');
 
     if (!department) {
-      return res.status(404).json({ message: 'Department not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Department not found',
+        data: null
+      });
     }
 
     return res.json({
+      success: true,
       message: 'Department updated successfully',
-      department
+      data: {
+        department
+      }
     });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: null
+    });
   }
 };
 
@@ -161,19 +219,35 @@ export const deleteDepartment = async (req, res) => {
     const { id } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid department id' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid department id',
+        data: null
+      });
     }
 
     const department = await Department.findByIdAndDelete(id);
 
     if (!department) {
-      return res.status(404).json({ message: 'Department not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Department not found',
+        data: null
+      });
     }
 
     return res.json({
-      message: 'Department deleted successfully'
+      success: true,
+      message: 'Department deleted successfully',
+      data: {
+        department
+      }
     });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: null
+    });
   }
 };

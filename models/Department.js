@@ -20,8 +20,8 @@ const departmentSchema = new mongoose.Schema(
 
     program: {
       type: String,
-      enum: ['B.E', 'B.Tech'],
-      default: 'B.E',
+      enum: ['B.E.', 'B.Tech.'],
+      default: 'B.E.',
       required: true
     },
 

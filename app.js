@@ -18,6 +18,7 @@ import batchRoutes from './routes/batch.routes.js';
 import sectionRoutes from './routes/section.routes.js';
 import regulationRoutes from './routes/regulation.routes.js';
 import curriculumRoutes from './routes/curriculum.routes.js';
+import subjectRoutes from './routes/subject.routes.js';
 import globalErrorHandler from './middleware/error.middleware.js';
 
 const app = express();
@@ -43,6 +44,7 @@ app.use('/api/batches', batchRoutes);
 app.use('/api/sections', sectionRoutes);
 app.use('/api/regulations', regulationRoutes);
 app.use('/api/curriculums', curriculumRoutes);
+app.use('/api/subjects', subjectRoutes);
 
 app.use(globalErrorHandler);
 

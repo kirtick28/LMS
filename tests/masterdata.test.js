@@ -1,5 +1,6 @@
 import request from 'supertest';
 import mongoose from 'mongoose';
+import xlsx from 'xlsx';
 import app from '../app.js';
 import Department from '../models/Department.js';
 import Batch from '../models/Batch.js';
@@ -27,18 +28,21 @@ describe('Master Data APIs', () => {
   describe('Department API', () => {
     it('creates department with normalized code', async () => {
       const token = await getTokenByRole('ADMIN', 'admin-dept');
+      const departmentCode = `CS${seq}X`;
+      const departmentName = `Computer Science ${uniqueId()}`;
 
       const res = await request(app)
         .post('/api/departments')
         .set('Authorization', `Bearer ${token}`)
         .send({
-          name: 'Computer Science and Engineering',
-          code: ' cse ',
-          program: 'B.E'
+          name: departmentName,
+          code: ` ${departmentCode.toLowerCase()} `,
+          program: 'B.E.'
         });
 
       expect(res.statusCode).toBe(201);
-      expect(res.body.department.code).toBe('CSE');
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.department.code).toBe(departmentCode);
     });
 
     it('rejects duplicate department code', async () => {
@@ -248,6 +252,113 @@ describe('Master Data APIs', () => {
 
       expect(res.statusCode).toBe(400);
       expect(res.body.message).toMatch(/semesterNumber/i);
+    });
+  });
+
+  describe('Subject API', () => {
+    it('returns 400 when subject upload file is missing', async () => {
+      const token = await getTokenByRole('ADMIN', 'admin-subject-upload-400');
+
+      const department = await Department.create({
+        name: `Dept-${uniqueId()}`,
+        code: `SM${seq}X`
+      });
+
+      const res = await request(app)
+        .post('/api/subjects/upload')
+        .set('Authorization', `Bearer ${token}`)
+        .field('departmentId', String(department._id));
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.message).toBe('No file uploaded');
+    });
+
+    it('uploads subjects and reports inserted/skipped/failed counts', async () => {
+      const token = await getTokenByRole('ADMIN', 'admin-subject-upload-200');
+
+      const department = await Department.create({
+        name: `Dept-${uniqueId()}`,
+        code: `SB${seq}X`
+      });
+
+      const rows = [
+        {
+          name: 'Linear Algebra',
+          code: 'MA3001',
+          credits: 4,
+          courseType: 'T'
+        },
+        {
+          name: 'Linear Algebra',
+          code: 'MA3999',
+          credits: 4,
+          courseType: 'T'
+        },
+        {
+          name: 'Broken Row'
+        }
+      ];
+
+      const workbook = xlsx.utils.book_new();
+      const sheet = xlsx.utils.json_to_sheet(rows);
+      xlsx.utils.book_append_sheet(workbook, sheet, 'Subjects');
+      const excelBuffer = xlsx.write(workbook, {
+        type: 'buffer',
+        bookType: 'xlsx'
+      });
+
+      const res = await request(app)
+        .post('/api/subjects/upload')
+        .set('Authorization', `Bearer ${token}`)
+        .field('departmentId', String(department._id))
+        .attach('file', excelBuffer, 'subjects-upload.xlsx');
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.inserted).toBe(1);
+      expect(res.body.data.skipped).toBe(1);
+      expect(res.body.data.failed).toBe(1);
+
+      const created = await Subject.findOne({ code: 'MA3001' });
+      expect(created).toBeTruthy();
+    });
+
+    it('uploads subjects when departmentId is provided in params', async () => {
+      const token = await getTokenByRole('ADMIN', 'admin-subject-upload-param');
+
+      const department = await Department.create({
+        name: `Dept-${uniqueId()}`,
+        code: `SP${seq}X`
+      });
+
+      const rows = [
+        {
+          name: 'Probability and Statistics',
+          code: 'MA3002',
+          credits: 4,
+          courseType: 'T'
+        }
+      ];
+
+      const workbook = xlsx.utils.book_new();
+      const sheet = xlsx.utils.json_to_sheet(rows);
+      xlsx.utils.book_append_sheet(workbook, sheet, 'Subjects');
+      const excelBuffer = xlsx.write(workbook, {
+        type: 'buffer',
+        bookType: 'xlsx'
+      });
+
+      const res = await request(app)
+        .post(`/api/subjects/upload/${department._id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .attach('file', excelBuffer, 'subjects-upload-param.xlsx');
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.inserted).toBe(1);
+      expect(res.body.data.skipped).toBe(0);
+      expect(res.body.data.failed).toBe(0);
     });
   });
 });

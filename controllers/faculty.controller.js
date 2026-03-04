@@ -153,7 +153,7 @@ const resolveDepartment = async (payload) => {
   return Department.create({
     name: departmentName,
     code: departmentCode || normalizeCode(departmentName),
-    program: 'B.E',
+    program: 'B.E.',
     isActive: true
   });
 };

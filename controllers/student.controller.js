@@ -93,7 +93,7 @@ const resolveDepartment = async (payload) => {
   dept = await Department.create({
     name: payload.departmentName,
     code,
-    program: 'B.E'
+    program: 'B.E.'
   });
 
   return dept;

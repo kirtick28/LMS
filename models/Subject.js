@@ -25,7 +25,7 @@ const subjectSchema = new mongoose.Schema(
 
     courseType: {
       type: String,
-      enum: ['T', 'P', 'TP', 'PJ', 'I'],
+      enum: ['T', 'P', 'TP', 'TPJ', 'PJ', 'I'],
       default: 'T'
     },
 

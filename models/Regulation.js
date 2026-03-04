@@ -21,7 +21,8 @@ const regulationSchema = new mongoose.Schema(
     totalSemesters: {
       type: Number,
       default: 8,
-      min: 1
+      min: 1,
+      max: 8
     },
 
     isActive: {

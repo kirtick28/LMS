@@ -29,6 +29,16 @@ const normalizeCode = (value) => {
     .slice(0, 10);
 };
 
+const normalizeTotalSemesters = (value) => {
+  const parsed = Number(value);
+
+  if (!parsed || Number.isNaN(parsed)) {
+    return 8;
+  }
+
+  return Math.min(Math.max(parsed, 1), 8);
+};
+
 const toTwoDigitYear = (year) => String(year).slice(-2);
 
 const buildAcademicYear = (batch, semesterNumber) => {
@@ -126,7 +136,7 @@ const resolveRegulation = async (payload, startYear) => {
     regulation = await Regulation.create({
       name: regulationName,
       startYear: resolvedStartYear,
-      totalSemesters: Number(payload.totalSemesters) || 8
+      totalSemesters: normalizeTotalSemesters(payload.totalSemesters)
     });
   }
 

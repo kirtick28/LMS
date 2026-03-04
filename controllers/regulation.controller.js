@@ -1,6 +1,16 @@
 import mongoose from 'mongoose';
 import Regulation from '../models/Regulation.js';
 
+const normalizeTotalSemesters = (value) => {
+  const parsed = Number(value);
+
+  if (!parsed || Number.isNaN(parsed)) {
+    return 8;
+  }
+
+  return Math.min(Math.max(parsed, 1), 8);
+};
+
 /* ============================
    CREATE REGULATION
 ============================ */
@@ -9,7 +19,11 @@ export const createRegulation = async (req, res) => {
     const { name, startYear, totalSemesters } = req.body;
 
     if (!name && !startYear) {
-      return res.status(400).json({ message: 'name or startYear is required' });
+      return res.status(400).json({
+        success: false,
+        message: 'name or startYear is required',
+        data: null
+      });
     }
 
     const normalizedName = name
@@ -21,21 +35,32 @@ export const createRegulation = async (req, res) => {
     });
 
     if (existing) {
-      return res.status(409).json({ message: 'Regulation already exists' });
+      return res.status(409).json({
+        success: false,
+        message: 'Regulation already exists',
+        data: null
+      });
     }
 
     const regulation = await Regulation.create({
       name: normalizedName,
       startYear,
-      totalSemesters
+      totalSemesters: normalizeTotalSemesters(totalSemesters)
     });
 
     return res.status(201).json({
+      success: true,
       message: 'Regulation created successfully',
-      regulation
+      data: {
+        regulation
+      }
     });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: null
+    });
   }
 };
 
@@ -49,9 +74,18 @@ export const getAllRegulations = async (req, res) => {
       name: 1
     });
 
-    return res.json(regulations);
+    return res.json({
+      success: true,
+      data: {
+        regulations
+      }
+    });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: null
+    });
   }
 };
 
@@ -63,18 +97,35 @@ export const getRegulationById = async (req, res) => {
     const { id } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid regulation id' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid regulation id',
+        data: null
+      });
     }
 
     const regulation = await Regulation.findById(id);
 
     if (!regulation) {
-      return res.status(404).json({ message: 'Regulation not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Regulation not found',
+        data: null
+      });
     }
 
-    return res.json(regulation);
+    return res.json({
+      success: true,
+      data: {
+        regulation
+      }
+    });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: null
+    });
   }
 };
 
@@ -87,7 +138,11 @@ export const updateRegulation = async (req, res) => {
     const updates = { ...req.body };
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid regulation id' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid regulation id',
+        data: null
+      });
     }
 
     if (updates.name) {
@@ -99,9 +154,11 @@ export const updateRegulation = async (req, res) => {
       });
 
       if (duplicate) {
-        return res
-          .status(409)
-          .json({ message: 'Regulation name already exists' });
+        return res.status(409).json({
+          success: false,
+          message: 'Regulation name already exists',
+          data: null
+        });
       }
     }
 
@@ -112,10 +169,16 @@ export const updateRegulation = async (req, res) => {
       });
 
       if (duplicateYear) {
-        return res
-          .status(409)
-          .json({ message: 'Regulation with same startYear already exists' });
+        return res.status(409).json({
+          success: false,
+          message: 'Regulation with same startYear already exists',
+          data: null
+        });
       }
+    }
+
+    if (updates.totalSemesters !== undefined) {
+      updates.totalSemesters = normalizeTotalSemesters(updates.totalSemesters);
     }
 
     const regulation = await Regulation.findByIdAndUpdate(id, updates, {
@@ -124,15 +187,26 @@ export const updateRegulation = async (req, res) => {
     });
 
     if (!regulation) {
-      return res.status(404).json({ message: 'Regulation not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Regulation not found',
+        data: null
+      });
     }
 
     return res.json({
+      success: true,
       message: 'Regulation updated successfully',
-      regulation
+      data: {
+        regulation
+      }
     });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: null
+    });
   }
 };
 
@@ -144,19 +218,35 @@ export const deleteRegulation = async (req, res) => {
     const { id } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid regulation id' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid regulation id',
+        data: null
+      });
     }
 
     const regulation = await Regulation.findByIdAndDelete(id);
 
     if (!regulation) {
-      return res.status(404).json({ message: 'Regulation not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Regulation not found',
+        data: null
+      });
     }
 
     return res.json({
-      message: 'Regulation deleted successfully'
+      success: true,
+      message: 'Regulation deleted successfully',
+      data: {
+        regulation
+      }
     });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: null
+    });
   }
 };

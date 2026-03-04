@@ -194,9 +194,7 @@ describe('Master Data APIs', () => {
         .send({
           departmentId: department._id,
           regulationId: regulation._id,
-          semesters: [
-            { semesterNumber: 1, subjects: [{ subjectId: subject._id }] }
-          ]
+          semesters: [{ semesterNumber: 1, subjects: [subject._id] }]
         });
 
       expect(createRes.statusCode).toBe(201);
@@ -215,7 +213,7 @@ describe('Master Data APIs', () => {
           semesters: [
             {
               semesterNumber: 2,
-              subjects: [{ subjectId: new mongoose.Types.ObjectId() }]
+              subjects: [new mongoose.Types.ObjectId()]
             }
           ]
         });

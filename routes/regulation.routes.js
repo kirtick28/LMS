@@ -32,8 +32,11 @@ const router = express.Router();
  *           example: 2023
  *         totalSemesters:
  *           type: integer
+ *           minimum: 1
+ *           maximum: 8
+ *           default: 8
  *           example: 8
- *       description: Either `name` or `startYear` must be supplied.
+ *       description: Either `name` or `startYear` must be supplied. `totalSemesters` is optional and defaults to 8.
  *     RegulationUpdateRequest:
  *       type: object
  *       properties:
@@ -43,15 +46,34 @@ const router = express.Router();
  *           type: integer
  *         totalSemesters:
  *           type: integer
+ *           minimum: 1
+ *           maximum: 8
  *         isActive:
  *           type: boolean
  *     RegulationResponse:
  *       type: object
  *       properties:
+ *         success:
+ *           type: boolean
  *         message:
  *           type: string
- *         regulation:
+ *         data:
  *           type: object
+ *           properties:
+ *             regulation:
+ *               type: object
+ *     RegulationListResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *         data:
+ *           type: object
+ *           properties:
+ *             regulations:
+ *               type: array
+ *               items:
+ *                 type: object
  */
 
 /**
@@ -108,6 +130,10 @@ router.post('/', protect, authorize('ADMIN'), createRegulation);
  *     responses:
  *       200:
  *         description: Regulation list fetched
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RegulationListResponse'
  *       401:
  *         description: Unauthorized (JWT missing or invalid)
  *       500:
@@ -136,6 +162,10 @@ router.get('/', protect, getAllRegulations);
  *     responses:
  *       200:
  *         description: Regulation fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RegulationResponse'
  *       400:
  *         description: Invalid regulation id
  *       401:
@@ -215,6 +245,10 @@ router.put('/:id', protect, authorize('ADMIN'), updateRegulation);
  *     responses:
  *       200:
  *         description: Regulation deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RegulationResponse'
  *       400:
  *         description: Invalid regulation id
  *       401:

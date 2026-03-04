@@ -21,16 +21,6 @@ const router = express.Router();
  * @swagger
  * components:
  *   schemas:
- *     CurriculumSubjectInput:
- *       type: object
- *       required:
- *         - subjectId
- *       properties:
- *         subjectId:
- *           type: string
- *         category:
- *           type: string
- *           example: Core
  *     CurriculumSemesterInput:
  *       type: object
  *       required:
@@ -44,7 +34,8 @@ const router = express.Router();
  *         subjects:
  *           type: array
  *           items:
- *             $ref: '#/components/schemas/CurriculumSubjectInput'
+ *             type: string
+ *             description: Subject ObjectId
  *     CurriculumCreateRequest:
  *       type: object
  *       required:

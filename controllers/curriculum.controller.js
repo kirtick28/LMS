@@ -33,12 +33,12 @@ const validateSemesters = async (semesters = []) => {
       throw new Error('subjects must be an array');
     }
 
-    for (const item of semester.subjects) {
-      if (!item.subjectId || !isValidObjectId(item.subjectId)) {
+    for (const subjectId of semester.subjects) {
+      if (!subjectId || !isValidObjectId(subjectId)) {
         throw new Error('Invalid subjectId in semesters');
       }
 
-      subjectIds.push(item.subjectId);
+      subjectIds.push(subjectId);
     }
   }
 
@@ -161,7 +161,7 @@ export const getAllCurriculums = async (req, res) => {
     const curriculums = await Curriculum.find(filter)
       .populate('departmentId', 'name code')
       .populate('regulationId', 'name startYear totalSemesters')
-      .populate('semesters.subjects.subjectId', 'name code courseType credits')
+      .populate('semesters.subjects', 'name code courseType credits')
       .sort({ createdAt: -1 });
 
     return res.json(curriculums);
@@ -185,7 +185,7 @@ export const getCurriculumById = async (req, res) => {
     const curriculum = await Curriculum.findById(id)
       .populate('departmentId', 'name code')
       .populate('regulationId', 'name startYear totalSemesters')
-      .populate('semesters.subjects.subjectId', 'name code courseType credits');
+      .populate('semesters.subjects', 'name code courseType credits');
 
     if (!curriculum) {
       return res.status(404).json({ message: 'Curriculum not found' });
@@ -246,7 +246,7 @@ export const updateCurriculum = async (req, res) => {
     })
       .populate('departmentId', 'name code')
       .populate('regulationId', 'name startYear totalSemesters')
-      .populate('semesters.subjects.subjectId', 'name code courseType credits');
+      .populate('semesters.subjects', 'name code courseType credits');
 
     if (!curriculum) {
       return res.status(404).json({ message: 'Curriculum not found' });

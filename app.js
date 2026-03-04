@@ -20,7 +20,7 @@ app.use('/images', express.static(path.join(process.cwd(), 'images')));
 app.use('/pdf_assets', express.static(path.join(process.cwd(), 'pdf')));
 
 // Global Middlewares
-app.use(cors());
+app.use(cors('*'));
 app.use(express.json());
 app.use(morgan('dev'));
 

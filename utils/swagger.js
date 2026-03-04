@@ -10,6 +10,9 @@ const options = {
     },
     servers: [
       {
+        url: 'http://10.57.1.217:5000'
+      },
+      {
         url: 'http://localhost:5000'
       }
     ],

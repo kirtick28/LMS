@@ -26,9 +26,6 @@ const sectionSchema = new mongoose.Schema(
 );
 
 /* Prevent duplicate sections inside same batch & semester */
-sectionSchema.index(
-  { name: 1, batchId: 1, semesterNumber: 1 },
-  { unique: true }
-);
+sectionSchema.index({ name: 1, batchId: 1 }, { unique: true });
 
 export default mongoose.model('Section', sectionSchema);

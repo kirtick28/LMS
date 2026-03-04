@@ -328,3 +328,150 @@ export const uploadMultipleStudents = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+/* ======================================================
+   DEPARTMENT-WISE STUDENT COUNT 
+====================================================== */
+export const getStudentDepartmentWise = async (req, res) => {
+  try {
+    const data = await Student.aggregate([
+      {
+        $group: {
+          _id: '$departmentId',
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $lookup: {
+          from: 'departments',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'department'
+        }
+      },
+      { $unwind: '$department' },
+      {
+        $project: {
+          _id: 0,
+          department: '$department.name',
+          count: 1
+        }
+      }
+    ]);
+
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/* ======================================================
+   STUDENTS STATS (COUNT - YEAR WISE FOR A DEPARTMENT)
+====================================================== */
+export const getStudentStats = async (req, res) => {
+  try {
+    const { departmentId } = req.query;
+
+    const matchStage = {};
+
+    if (departmentId) {
+      matchStage.departmentId = new mongoose.Types.ObjectId(departmentId);
+    }
+
+    const students = await Student.aggregate([
+      { $match: matchStage },
+
+      {
+        $lookup: {
+          from: 'batches',
+          localField: 'batchId',
+          foreignField: '_id',
+          as: 'batch'
+        }
+      },
+
+      { $unwind: '$batch' },
+
+      {
+        $group: {
+          _id: '$batch.yearNumber', // assuming batch has yearNumber: 1,2,3,4
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const totalStudents = await Student.countDocuments(matchStage);
+
+    const yearMap = {
+      1: 0,
+      2: 0,
+      3: 0,
+      4: 0
+    };
+
+    students.forEach((y) => {
+      yearMap[y._id] = y.count;
+    });
+
+    res.json({
+      totalStudents,
+      yearWise: {
+        firstYear: yearMap[1],
+        secondYear: yearMap[2],
+        thirdYear: yearMap[3],
+        fourthYear: yearMap[4]
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/* ======================================================
+   DEPARTMENT SUMMARY
+====================================================== */
+export const getDepartmentSummary = async (req, res) => {
+  try {
+    const departmentId = req.user.departmentId;
+
+    if (!departmentId) {
+      return res.status(400).json({
+        message: 'Department missing in token'
+      });
+    }
+
+    const students = await Student.find({
+      departmentId
+    })
+      .populate('academicHistory.sectionId')
+      .populate('academicHistory.academicYearId');
+
+    const summary = {
+      departmentId,
+      totalStudents: students.length,
+      sections: {}
+    };
+
+    students.forEach((student) => {
+      const current = student.academicHistory.find((h) => h.isCurrent === true);
+
+      if (!current) return;
+
+      const sectionName = current.sectionId?.name || 'Unknown';
+
+      if (!summary.sections[sectionName]) {
+        summary.sections[sectionName] = {
+          count: 0,
+          students: []
+        };
+      }
+
+      summary.sections[sectionName].count++;
+      summary.sections[sectionName].students.push(student);
+    });
+
+    res.json(summary);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};

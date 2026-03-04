@@ -19,6 +19,48 @@ const router = express.Router();
 
 /**
  * @swagger
+ * components:
+ *   schemas:
+ *     AuthResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: true
+ *         data:
+ *           type: object
+ *           properties:
+ *             _id:
+ *               type: string
+ *             email:
+ *               type: string
+ *             role:
+ *               type: string
+ *               enum: [STUDENT, FACULTY, ADMIN]
+ *             token:
+ *               type: string
+ *
+ *     MessageResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: true
+ *         message:
+ *           type: string
+ *
+ *     ErrorResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: false
+ *         message:
+ *           type: string
+ */
+
+/**
+ * @swagger
  * /api/auth/register:
  *   post:
  *     summary: Register a new user
@@ -40,7 +82,7 @@ const router = express.Router();
  *                 example: student@example.com
  *               password:
  *                 type: string
- *                 example: 123456
+ *                 example: password123
  *               role:
  *                 type: string
  *                 enum: [STUDENT, FACULTY, ADMIN]
@@ -48,8 +90,18 @@ const router = express.Router();
  *     responses:
  *       201:
  *         description: User registered successfully
- *       400:
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AuthResponse'
+ *       409:
  *         description: User already exists
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Server error
  */
 router.post('/register', registerUser);
 
@@ -75,14 +127,20 @@ router.post('/register', registerUser);
  *                 example: student@example.com
  *               password:
  *                 type: string
- *                 example: 123456
+ *                 example: password123
  *     responses:
  *       200:
  *         description: Login successful
- *       400:
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AuthResponse'
+ *       401:
  *         description: Invalid credentials
  *       403:
- *         description: Account inactive
+ *         description: Account is inactive
+ *       500:
+ *         description: Server error
  */
 router.post('/login', loginUser);
 
@@ -92,7 +150,12 @@ router.post('/login', loginUser);
  *   post:
  *     summary: Generate password reset token
  *     tags: [Auth]
- *     description: Sends a password reset link to the user's email.
+ *     description: |
+ *       Sends a password reset link to the user's email.
+ *
+ *       **Security Note:**
+ *       This endpoint always returns a success response even if the email does not exist,
+ *       to prevent user enumeration attacks.
  *     requestBody:
  *       required: true
  *       content:
@@ -107,9 +170,13 @@ router.post('/login', loginUser);
  *                 example: student@example.com
  *     responses:
  *       200:
- *         description: Reset token generated
- *       404:
- *         description: User not found
+ *         description: If the email exists, a reset link has been sent
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/MessageResponse'
+ *       500:
+ *         description: Email sending failed or server error
  */
 router.post('/forgot-password', forgotPassword);
 
@@ -132,15 +199,21 @@ router.post('/forgot-password', forgotPassword);
  *             properties:
  *               token:
  *                 type: string
- *                 example: 8a7f9c0e...
+ *                 example: a34fd90c2aab9c...
  *               newPassword:
  *                 type: string
  *                 example: newPassword123
  *     responses:
  *       200:
  *         description: Password reset successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/MessageResponse'
  *       400:
- *         description: Invalid or expired token
+ *         description: Invalid or expired reset token
+ *       500:
+ *         description: Server error
  */
 router.post('/reset-password', resetPassword);
 
@@ -153,8 +226,7 @@ router.post('/reset-password', resetPassword);
  *     description: |
  *       Allows an authenticated user to change their password.
  *
- *       **Access Roles: STUDENT, FACULTY, ADMIN**
- *
+ *       **Access Roles:** STUDENT, FACULTY, ADMIN
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -176,10 +248,18 @@ router.post('/reset-password', resetPassword);
  *     responses:
  *       200:
  *         description: Password changed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/MessageResponse'
  *       400:
- *         description: Current PasswordIncorrect
+ *         description: Current password incorrect
  *       401:
- *         description: Unauthorized
+ *         description: Unauthorized (JWT missing or invalid)
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Server error
  */
 router.post('/change-password', protect, changePassword);
 

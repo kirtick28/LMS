@@ -109,7 +109,7 @@ const resolveDepartment = async (payload) => {
   const existing = await Department.findOne({
     $or: [
       { name: departmentName },
-      ...(departmentCode ? [{ code: departmentCode }] : [])
+      ...(departmentCode ? [{ shortName: departmentCode }] : [])
     ]
   });
 
@@ -118,7 +118,6 @@ const resolveDepartment = async (payload) => {
   return Department.create({
     name: departmentName,
     shortName: departmentCode || undefined,
-    code: departmentCode || normalizeCode(departmentName),
     program: 'B.E',
     isActive: true
   });
@@ -135,8 +134,7 @@ const resolveDepartmentFromParam = async (departmentParam) => {
   return Department.findOne({
     $or: [
       { name: { $regex: new RegExp(`^${cleaned}$`, 'i') } },
-      { shortName: { $regex: new RegExp(`^${cleaned}$`, 'i') } },
-      { code: { $regex: new RegExp(`^${cleaned}$`, 'i') } }
+      { shortName: { $regex: new RegExp(`^${cleaned}$`, 'i') } }
     ]
   });
 };
@@ -550,7 +548,7 @@ export const getAllFaculty = async (req, res) => {
     const facultyList = await Faculty.find(filter)
       .sort({ firstName: 1 })
       .populate('userId', 'email role isActive gender dateOfBirth')
-      .populate('departmentId', 'name code shortName')
+      .populate('departmentId', 'name shortName')
       .populate(
         'reportingManager',
         'firstName lastName employeeId designation'
@@ -590,7 +588,7 @@ export const getDepartmentWise = async (req, res) => {
           _id: 0,
           departmentId: '$_id',
           departmentName: '$department.name',
-          departmentCode: '$department.code',
+          departmentShortName: '$department.shortName',
           count: 1
         }
       },

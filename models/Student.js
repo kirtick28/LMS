@@ -48,6 +48,43 @@ const studentSchema = new mongoose.Schema(
       trim: true
     },
 
+    gender: {
+      type: String,
+      enum: ['Male', 'Female', 'Other'],
+      required: false
+    },
+
+    dateOfBirth: {
+      type: Date,
+      required: false
+    },
+
+    sectionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Section',
+      index: true
+    },
+
+    semesterNumber: {
+      type: Number,
+      min: 1,
+      max: 12,
+      default: 1,
+      index: true
+    },
+
+    academicYearLabel: {
+      type: String,
+      trim: true,
+      index: true
+    },
+
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true
+    },
+
     entryType: {
       type: String,
       enum: ['REGULAR', 'LATERAL'],
@@ -61,7 +98,6 @@ const studentSchema = new mongoose.Schema(
       index: true
     },
 
-    // 🌟 The Updated History Array (Replaces Section ID)
     academicHistory: [
       {
         academicYearId: {
@@ -91,8 +127,8 @@ const studentSchema = new mongoose.Schema(
 /* ---------------- COMPOUND INDEXES ---------------- */
 studentSchema.index({ batchId: 1, academicStatus: 1 });
 studentSchema.index({ departmentId: 1, academicStatus: 1 });
+studentSchema.index({ sectionId: 1, semesterNumber: 1, isActive: 1 });
 
-// Indexing inside the array to quickly find students in a specific current section
 studentSchema.index({
   'academicHistory.sectionId': 1,
   'academicHistory.isCurrent': 1
@@ -108,10 +144,22 @@ studentSchema.virtual('currentEnrollment').get(function () {
   return this.academicHistory.find((history) => history.isCurrent === true);
 });
 
+studentSchema.pre('validate', function () {
+  const current = this.academicHistory.find((history) => history.isCurrent);
+
+  if (current) {
+    this.sectionId = this.sectionId || current.sectionId;
+    this.semesterNumber = this.semesterNumber || current.semesterNumber;
+  }
+
+  if (this.academicStatus) {
+    this.isActive = !['DISCONTINUED', 'DROPPED', 'GRADUATED'].includes(
+      this.academicStatus
+    );
+  }
+});
+
 studentSchema.set('toJSON', { virtuals: true });
 studentSchema.set('toObject', { virtuals: true });
-
-/* ---------------- DOCUMENT MIDDLEWARE ---------------- */
-// Add logic here if you want to automatically set initial history on creation
 
 export default mongoose.model('Student', studentSchema);

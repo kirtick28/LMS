@@ -2,17 +2,30 @@ import mongoose from 'mongoose';
 
 const subjectSchema = new mongoose.Schema(
   {
-    code: {
-      type: String,
-      required: true,
-      uppercase: true,
-      trim: true
-    },
-
     name: {
       type: String,
       required: true,
       trim: true
+    },
+
+    code: {
+      type: String,
+      required: true,
+      unique: true,
+      uppercase: true,
+      trim: true
+    },
+
+    credits: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+
+    courseType: {
+      type: String,
+      enum: ['T', 'P', 'TP', 'PJ', 'I'],
+      default: 'T'
     },
 
     departmentId: {
@@ -22,9 +35,15 @@ const subjectSchema = new mongoose.Schema(
       index: true
     },
 
+    regulationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Regulation',
+      default: null,
+      index: true
+    },
+
     regulation: {
       type: String,
-      required: true,
       trim: true,
       index: true
     },
@@ -32,7 +51,7 @@ const subjectSchema = new mongoose.Schema(
     type: {
       type: String,
       enum: ['T', 'P', 'TP', 'TPJ', 'PJ', 'I'],
-      required: true
+      default: undefined
     },
 
     isActive: {
@@ -44,17 +63,17 @@ const subjectSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/* Unique per regulation + department */
-subjectSchema.index(
-  { code: 1, regulation: 1, departmentId: 1 },
-  { unique: true }
-);
+subjectSchema.index({ departmentId: 1, isActive: 1 });
+subjectSchema.index({ departmentId: 1, regulationId: 1, isActive: 1 });
 
-/* Fast filtering */
-subjectSchema.index({
-  departmentId: 1,
-  regulation: 1,
-  isActive: 1
+subjectSchema.pre('validate', function () {
+  if (!this.type && this.courseType) {
+    this.type = this.courseType;
+  }
+
+  if (!this.courseType && this.type && this.type !== 'TPJ') {
+    this.courseType = this.type;
+  }
 });
 
 export default mongoose.model('Subject', subjectSchema);

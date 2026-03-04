@@ -1,31 +1,33 @@
 import mongoose from 'mongoose';
 
-const studentAttendanceSchema = new mongoose.Schema(
+const attendanceRecordSchema = new mongoose.Schema(
   {
     studentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Student',
-      required: true,
-      index: true
-    },
-
-    facultyAssignmentId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'FacultyAssignment',
-      required: true,
-      index: true
-    },
-
-    academicYearId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'AcademicYear',
-      required: true,
-      index: true
-    },
-
-    semesterNumber: {
-      type: Number,
       required: true
+    },
+    status: {
+      type: String,
+      enum: ['present', 'absent', 'on-duty'],
+      required: true
+    },
+    markedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Faculty',
+      default: null
+    }
+  },
+  { _id: false }
+);
+
+const attendanceSchema = new mongoose.Schema(
+  {
+    classroomId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Classroom',
+      required: true,
+      index: true
     },
 
     date: {
@@ -34,32 +36,95 @@ const studentAttendanceSchema = new mongoose.Schema(
       index: true
     },
 
-    slotNumber: {
-      type: Number,
-      required: true,
-      min: 1,
-      max: 8
+    records: {
+      type: [attendanceRecordSchema],
+      default: []
     },
 
-    status: {
+    facultyAssignmentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'FacultyAssignment',
+      default: null,
+      index: true
+    },
+
+    academicYearId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'AcademicYear',
+      default: null,
+      index: true
+    },
+
+    academicYearLabel: {
       type: String,
-      enum: ['Present', 'Absent', 'On-Duty'],
-      required: true
+      trim: true,
+      default: '',
+      index: true
+    },
+
+    semesterNumber: {
+      type: Number,
+      default: null
+    },
+
+    slotNumber: {
+      type: Number,
+      min: 1,
+      max: 8,
+      default: null
     },
 
     markedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Faculty',
-      required: true
+      default: null
+    },
+
+    status: {
+      type: String,
+      enum: ['Present', 'Absent', 'On-Duty'],
+      default: null
+    },
+
+    studentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Student',
+      default: null,
+      index: true
+    },
+
+    migratedLegacy: {
+      type: Boolean,
+      default: false,
+      index: true
     }
   },
   { timestamps: true }
 );
 
-// Prevent duplicate attendance entry
-studentAttendanceSchema.index(
-  { studentId: 1, facultyAssignmentId: 1, date: 1, slotNumber: 1 },
-  { unique: true }
-);
+attendanceSchema.index({ classroomId: 1, date: 1 }, { unique: true });
+attendanceSchema.index({ 'records.studentId': 1, date: 1 });
 
-export default mongoose.model('StudentAttendance', studentAttendanceSchema);
+attendanceSchema.pre('validate', function () {
+  if (this.studentId && this.status && this.records.length === 0) {
+    this.records = [
+      {
+        studentId: this.studentId,
+        status: this.status.toLowerCase(),
+        markedBy: this.markedBy || null
+      }
+    ];
+    this.migratedLegacy = true;
+  }
+
+  if (!this.studentId && this.records.length > 0) {
+    const first = this.records[0];
+    this.studentId = first.studentId || null;
+    this.status = first.status
+      ? first.status.charAt(0).toUpperCase() + first.status.slice(1)
+      : this.status;
+    this.markedBy = this.markedBy || first.markedBy || null;
+  }
+});
+
+export default mongoose.model('Attendance', attendanceSchema);

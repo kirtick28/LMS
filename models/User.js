@@ -21,7 +21,16 @@ const userSchema = new mongoose.Schema(
 
     role: {
       type: String,
-      enum: ['STUDENT', 'FACULTY', 'ADMIN'],
+      enum: [
+        'super_admin',
+        'admin',
+        'faculty',
+        'student',
+        'SUPER_ADMIN',
+        'ADMIN',
+        'FACULTY',
+        'STUDENT'
+      ],
       required: true,
       index: true
     },
@@ -68,6 +77,18 @@ userSchema.index({ email: 1, isActive: 1 });
 /* ---------------- DOCUMENT MIDDLEWARE ---------------- */
 // Check both profileRef and profileType exist together
 userSchema.pre('save', async function () {
+  if (this.role) {
+    const role = String(this.role);
+    const roleMap = {
+      super_admin: 'SUPER_ADMIN',
+      admin: 'ADMIN',
+      faculty: 'FACULTY',
+      student: 'STUDENT'
+    };
+
+    this.role = roleMap[role.toLowerCase()] || role;
+  }
+
   if (this.profileRef && !this.profileType) {
     throw new Error('profileType is required when profileRef is provided');
   }

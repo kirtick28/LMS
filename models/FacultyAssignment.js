@@ -2,13 +2,6 @@ import mongoose from 'mongoose';
 
 const facultyAssignmentSchema = new mongoose.Schema(
   {
-    subjectId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Subject',
-      required: true,
-      index: true
-    },
-
     facultyId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Faculty',
@@ -23,9 +16,9 @@ const facultyAssignmentSchema = new mongoose.Schema(
       index: true
     },
 
-    academicYearId: {
+    subjectId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'AcademicYear',
+      ref: 'Subject',
       required: true,
       index: true
     },
@@ -33,7 +26,29 @@ const facultyAssignmentSchema = new mongoose.Schema(
     semesterNumber: {
       type: Number,
       required: true,
-      min: 1
+      min: 1,
+      index: true
+    },
+
+    departmentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Department',
+      default: null,
+      index: true
+    },
+
+    batchId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Batch',
+      default: null,
+      index: true
+    },
+
+    curriculumId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Curriculum',
+      default: null,
+      index: true
     },
 
     isActive: {
@@ -45,14 +60,17 @@ const facultyAssignmentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/* Prevent duplicate assignment */
 facultyAssignmentSchema.index(
-  {
-    subjectId: 1,
-    sectionId: 1,
-    academicYearId: 1
-  },
+  { sectionId: 1, subjectId: 1, semesterNumber: 1 },
   { unique: true }
 );
+
+facultyAssignmentSchema.index({ facultyId: 1, isActive: 1 });
+
+facultyAssignmentSchema.pre('validate', function () {
+  if (this.semesterNumber < 1) {
+    throw new Error('semesterNumber must be >= 1');
+  }
+});
 
 export default mongoose.model('FacultyAssignment', facultyAssignmentSchema);

@@ -63,23 +63,21 @@ const resolveDepartment = async (payload) => {
     throw new Error('departmentId or departmentName is required');
   }
 
-  const code = normalizeCode(
+  const shortName =
+    payload.departmentShortName ||
     payload.departmentCode ||
-      rawDepartment.code ||
-      rawDepartment.shortName ||
-      name
-  );
+    rawDepartment.shortName ||
+    rawDepartment.code;
 
   const existing = await Department.findOne({
-    $or: [{ name }, ...(code ? [{ code }] : [])]
+    $or: [{ name }, ...(shortName ? [{ shortName }] : [])]
   });
 
   if (existing) return existing;
 
   return Department.create({
     name,
-    code: code || normalizeCode(name),
-    shortName: rawDepartment.shortName,
+    shortName: shortName || undefined,
     program: rawDepartment.program || payload.program || 'B.E',
     isActive: true
   });
@@ -151,7 +149,9 @@ const resolveBatch = async (payload, department, academicYear) => {
   if (existing) return existing;
 
   const batchName =
-    payload.batchName || rawBatch.name || `${department.code}-${admissionYear}`;
+    payload.batchName ||
+    rawBatch.name ||
+    `${department.shortName || normalizeCode(department.name)}-${admissionYear}`;
 
   return Batch.create({
     name: batchName,
@@ -204,10 +204,85 @@ const resolveStudentAcademicContext = async (
 
   return {
     departmentId: department._id,
+    academicYear: academicYear,
     academicYearId: academicYear._id,
     batchId: batch._id,
     sectionId: section._id
   };
+};
+
+const getAcademicYearLabel = (academicYear) => {
+  if (!academicYear) return '';
+  if (academicYear.name) return String(academicYear.name);
+  if (academicYear.startYear && academicYear.endYear) {
+    return `${academicYear.startYear}-${academicYear.endYear}`;
+  }
+  return '';
+};
+
+const toObjectId = (value, fieldName) => {
+  if (!value) return null;
+  if (!mongoose.Types.ObjectId.isValid(value)) {
+    throw new Error(`Invalid ${fieldName}`);
+  }
+  return new mongoose.Types.ObjectId(value);
+};
+
+const getYearFromSemester = (semesterNumber) => {
+  const semester = Number(semesterNumber);
+  if (!Number.isFinite(semester) || semester <= 0) return null;
+  const year = Math.ceil(semester / 2);
+  return year >= 1 && year <= 4 ? year : null;
+};
+
+const buildStudentQueryFilter = (query) => {
+  const { departmentId, batchId, sectionId, academicYearId } = query;
+
+  const filter = {};
+  if (departmentId)
+    filter.departmentId = toObjectId(departmentId, 'departmentId');
+  if (batchId) filter.batchId = toObjectId(batchId, 'batchId');
+
+  const elemMatch = {};
+
+  if (academicYearId) {
+    elemMatch.academicYearId = toObjectId(academicYearId, 'academicYearId');
+  }
+
+  if (sectionId) {
+    elemMatch.sectionId = toObjectId(sectionId, 'sectionId');
+
+    if (!academicYearId) {
+      elemMatch.isCurrent = true;
+    }
+  }
+
+  if (Object.keys(elemMatch).length > 0) {
+    filter.academicHistory = { $elemMatch: elemMatch };
+  }
+
+  return {
+    filter,
+    academicYearId: elemMatch.academicYearId || null
+  };
+};
+
+const trimAcademicHistoryByYear = (students, academicYearObjectId) => {
+  if (!academicYearObjectId) return students;
+
+  const academicYearIdString = String(academicYearObjectId);
+
+  return students.map((student) => {
+    const studentObj = student.toObject();
+    studentObj.academicHistory = studentObj.academicHistory.filter(
+      (history) => {
+        const historyYearId =
+          history.academicYearId?._id || history.academicYearId;
+        return String(historyYearId) === academicYearIdString;
+      }
+    );
+    return studentObj;
+  });
 };
 
 /* ======================================================
@@ -220,7 +295,6 @@ export const addStudent = async (req, res) => {
       password,
       gender,
       dateOfBirth,
-
       firstName,
       lastName,
       registerNumber,
@@ -269,10 +343,13 @@ export const addStudent = async (req, res) => {
       userId: user._id,
       departmentId: context.departmentId,
       batchId: context.batchId,
+      sectionId: context.sectionId,
       firstName,
       lastName,
       registerNumber,
       rollNumber,
+      semesterNumber: Number(semesterNumber) || 1,
+      academicYearLabel: getAcademicYearLabel(context.academicYear),
       academicHistory: [
         {
           academicYearId: context.academicYearId,
@@ -318,6 +395,9 @@ export const updateStudent = async (req, res) => {
       'rollNumber',
       'departmentId',
       'batchId',
+      'sectionId',
+      'semesterNumber',
+      'academicYearLabel',
       'entryType',
       'academicStatus'
     ];
@@ -373,14 +453,16 @@ export const deleteStudent = async (req, res) => {
 ====================================================== */
 export const getAllStudents = async (req, res) => {
   try {
-    const students = await Student.find()
+    const { filter, academicYearId } = buildStudentQueryFilter(req.query);
+
+    const students = await Student.find(filter)
       .populate('userId', 'email gender dateOfBirth isActive')
       .populate('departmentId')
       .populate('batchId')
       .populate('academicHistory.sectionId')
       .populate('academicHistory.academicYearId');
 
-    res.json(students);
+    res.json(trimAcademicHistoryByYear(students, academicYearId));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -391,30 +473,23 @@ export const getAllStudents = async (req, res) => {
 ====================================================== */
 export const getStudentsFiltered = async (req, res) => {
   try {
-    const { departmentId, batchId, sectionId } = req.query;
-
-    const filter = {};
-
-    if (departmentId) filter.departmentId = departmentId;
-    if (batchId) filter.batchId = batchId;
-
-    if (sectionId) {
-      filter.academicHistory = {
-        $elemMatch: {
-          sectionId,
-          isCurrent: true
-        }
-      };
-    }
+    const { filter, academicYearId } = buildStudentQueryFilter(req.query);
 
     const students = await Student.find(filter)
       .populate('userId', 'email')
       .populate('departmentId')
-      .populate('batchId');
+      .populate('batchId')
+      .populate('academicHistory.sectionId')
+      .populate('academicHistory.academicYearId');
+
+    const filteredStudents = trimAcademicHistoryByYear(
+      students,
+      academicYearId
+    );
 
     res.json({
-      total: students.length,
-      students
+      total: filteredStudents.length,
+      students: filteredStudents
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -450,6 +525,16 @@ export const swapStudentSection = async (req, res) => {
         sectionId: newSectionId,
         isCurrent: true
       });
+
+      student.sectionId = newSectionId;
+      student.semesterNumber = Number(semesterNumber) || student.semesterNumber;
+
+      if (academicYearId) {
+        const academicYear = await AcademicYear.findById(academicYearId);
+        if (academicYear) {
+          student.academicYearLabel = getAcademicYearLabel(academicYear);
+        }
+      }
 
       await student.save();
     }
@@ -506,9 +591,12 @@ export const uploadMultipleStudents = async (req, res) => {
         userId: user._id,
         departmentId: context.departmentId,
         batchId: context.batchId,
+        sectionId: context.sectionId,
         firstName,
         lastName,
         registerNumber,
+        semesterNumber: Number(semesterNumber) || 1,
+        academicYearLabel: getAcademicYearLabel(context.academicYear),
         academicHistory: [
           {
             academicYearId: context.academicYearId,
@@ -535,77 +623,39 @@ export const uploadMultipleStudents = async (req, res) => {
 };
 
 /* ======================================================
-   DEPARTMENT-WISE STUDENT COUNT 
-====================================================== */
-export const getStudentDepartmentWise = async (req, res) => {
-  try {
-    const data = await Student.aggregate([
-      {
-        $group: {
-          _id: '$departmentId',
-          count: { $sum: 1 }
-        }
-      },
-      {
-        $lookup: {
-          from: 'departments',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'department'
-        }
-      },
-      { $unwind: '$department' },
-      {
-        $project: {
-          _id: 0,
-          department: '$department.name',
-          count: 1
-        }
-      }
-    ]);
-
-    res.json(data);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-/* ======================================================
-   STUDENTS STATS (COUNT - YEAR WISE FOR A DEPARTMENT)
+   STUDENT STATS (TOTAL + 1ST TO 4TH YEAR)
 ====================================================== */
 export const getStudentStats = async (req, res) => {
   try {
-    const { departmentId } = req.query;
+    const { departmentId, academicYearId } = req.query;
 
-    const matchStage = {};
+    const baseMatch = {};
 
     if (departmentId) {
-      matchStage.departmentId = new mongoose.Types.ObjectId(departmentId);
+      baseMatch.departmentId = toObjectId(departmentId, 'departmentId');
     }
 
-    const students = await Student.aggregate([
-      { $match: matchStage },
-
-      {
-        $lookup: {
-          from: 'batches',
-          localField: 'batchId',
-          foreignField: '_id',
-          as: 'batch'
+    const historyMatch = academicYearId
+      ? {
+          'academicHistory.academicYearId': toObjectId(
+            academicYearId,
+            'academicYearId'
+          )
         }
-      },
+      : { 'academicHistory.isCurrent': true };
 
-      { $unwind: '$batch' },
-
+    const rows = await Student.aggregate([
+      { $match: baseMatch },
+      { $unwind: '$academicHistory' },
+      { $match: historyMatch },
+      { $sort: { 'academicHistory.semesterNumber': -1 } },
       {
         $group: {
-          _id: '$batch.yearNumber', // assuming batch has yearNumber: 1,2,3,4
-          count: { $sum: 1 }
+          _id: '$_id',
+          semesterNumber: { $first: '$academicHistory.semesterNumber' }
         }
       }
     ]);
-
-    const totalStudents = await Student.countDocuments(matchStage);
 
     const yearMap = {
       1: 0,
@@ -614,11 +664,18 @@ export const getStudentStats = async (req, res) => {
       4: 0
     };
 
-    students.forEach((y) => {
-      yearMap[y._id] = y.count;
+    rows.forEach((row) => {
+      const year = getYearFromSemester(row.semesterNumber);
+      if (year) yearMap[year] += 1;
     });
 
+    const totalStudents = yearMap[1] + yearMap[2] + yearMap[3] + yearMap[4];
+
     res.json({
+      filters: {
+        departmentId: departmentId || null,
+        academicYearId: academicYearId || null
+      },
       totalStudents,
       yearWise: {
         firstYear: yearMap[1],
@@ -633,49 +690,89 @@ export const getStudentStats = async (req, res) => {
 };
 
 /* ======================================================
-   DEPARTMENT SUMMARY
+   DEPARTMENT-WISE STUDENT COUNT (TOTAL + 1ST TO 4TH YEAR)
 ====================================================== */
-export const getDepartmentSummary = async (req, res) => {
+export const getStudentDepartmentWise = async (req, res) => {
   try {
-    const departmentId = req.user.departmentId;
+    const { academicYearId } = req.query;
 
-    if (!departmentId) {
-      return res.status(400).json({
-        message: 'Department missing in token'
-      });
-    }
+    const historyMatch = academicYearId
+      ? {
+          'academicHistory.academicYearId': toObjectId(
+            academicYearId,
+            'academicYearId'
+          )
+        }
+      : { 'academicHistory.isCurrent': true };
 
-    const students = await Student.find({
-      departmentId
-    })
-      .populate('academicHistory.sectionId')
-      .populate('academicHistory.academicYearId');
+    const rows = await Student.aggregate([
+      { $unwind: '$academicHistory' },
+      { $match: historyMatch },
+      { $sort: { 'academicHistory.semesterNumber': -1 } },
+      {
+        $group: {
+          _id: '$_id',
+          departmentId: { $first: '$departmentId' },
+          semesterNumber: { $first: '$academicHistory.semesterNumber' }
+        }
+      },
+      {
+        $lookup: {
+          from: 'departments',
+          localField: 'departmentId',
+          foreignField: '_id',
+          as: 'department'
+        }
+      },
+      {
+        $unwind: {
+          path: '$department',
+          preserveNullAndEmptyArrays: true
+        }
+      }
+    ]);
 
-    const summary = {
-      departmentId,
-      totalStudents: students.length,
-      sections: {}
-    };
+    const grouped = {};
 
-    students.forEach((student) => {
-      const current = student.academicHistory.find((h) => h.isCurrent === true);
+    rows.forEach((row) => {
+      const year = getYearFromSemester(row.semesterNumber);
+      if (!year) return;
 
-      if (!current) return;
+      const deptId = String(row.departmentId);
+      const deptName = row.department?.name || 'Unknown Department';
 
-      const sectionName = current.sectionId?.name || 'Unknown';
-
-      if (!summary.sections[sectionName]) {
-        summary.sections[sectionName] = {
-          count: 0,
-          students: []
+      if (!grouped[deptId]) {
+        grouped[deptId] = {
+          departmentId: row.departmentId,
+          department: deptName,
+          totalStudents: 0,
+          yearWise: {
+            firstYear: 0,
+            secondYear: 0,
+            thirdYear: 0,
+            fourthYear: 0
+          }
         };
       }
 
-      summary.sections[sectionName].count++;
-      summary.sections[sectionName].students.push(student);
+      grouped[deptId].totalStudents += 1;
+      if (year === 1) grouped[deptId].yearWise.firstYear += 1;
+      if (year === 2) grouped[deptId].yearWise.secondYear += 1;
+      if (year === 3) grouped[deptId].yearWise.thirdYear += 1;
+      if (year === 4) grouped[deptId].yearWise.fourthYear += 1;
     });
 
-    res.json(summary);
+    const data = Object.values(grouped).sort((a, b) =>
+      String(a.department).localeCompare(String(b.department))
+    );
+
+    res.json({
+      filters: {
+        academicYearId: academicYearId || null
+      },
+      totalDepartments: data.length,
+      departments: data
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

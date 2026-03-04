@@ -1,27 +1,86 @@
 import mongoose from 'mongoose';
-import ClassroomContentBaseSchema from '../schemas/classroomContentBase.js';
-import SubmissionSchema from '../schemas/submission.js';
+import CommentSchema from '../schemas/comment.schema.js';
 
-const AssignmentSchema = new mongoose.Schema(
+const assignmentSchema = new mongoose.Schema(
   {
-    ...ClassroomContentBaseSchema,
+    classroomId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Classroom',
+      required: true,
+      index: true
+    },
 
-    marks: {
-      type: Number,
-      required: true
+    title: {
+      type: String,
+      required: true,
+      trim: true
+    },
+
+    description: {
+      type: String,
+      default: ''
     },
 
     dueDate: {
       type: Date,
-      required: true
+      required: true,
+      index: true
     },
 
-    submissions: {
-      type: [SubmissionSchema],
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Faculty',
+      required: true,
+      index: true
+    },
+
+    marks: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+
+    instruction: {
+      type: String,
+      default: ''
+    },
+
+    attachments: {
+      type: [String],
       default: []
+    },
+
+    link: {
+      type: String,
+      default: ''
+    },
+
+    youtubeLink: {
+      type: String,
+      default: ''
+    },
+
+    comments: {
+      type: [CommentSchema],
+      default: []
+    },
+
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true
     }
   },
   { timestamps: true }
 );
 
-export default mongoose.model('Assignment', AssignmentSchema);
+assignmentSchema.index({ classroomId: 1, dueDate: 1 });
+assignmentSchema.index({ createdBy: 1, createdAt: -1 });
+
+assignmentSchema.pre('validate', function () {
+  if (this.dueDate && this.createdAt && this.dueDate < this.createdAt) {
+    throw new Error('dueDate cannot be before creation time');
+  }
+});
+
+export default mongoose.model('Assignment', assignmentSchema);

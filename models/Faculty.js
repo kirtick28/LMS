@@ -35,7 +35,12 @@ const facultySchema = new mongoose.Schema(
 
     mobileNumber: {
       type: String,
-      required: true,
+      trim: true,
+      match: /^[0-9]{10}$/
+    },
+
+    phone: {
+      type: String,
       trim: true,
       match: /^[0-9]{10}$/
     },
@@ -45,7 +50,16 @@ const facultySchema = new mongoose.Schema(
       required: true,
       unique: true,
       uppercase: true,
-      trim: true
+      trim: true,
+      sparse: true
+    },
+
+    facultyCode: {
+      type: String,
+      unique: true,
+      uppercase: true,
+      trim: true,
+      sparse: true
     },
 
     profileImage: {
@@ -100,6 +114,12 @@ const facultySchema = new mongoose.Schema(
       index: true
     },
 
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true
+    },
+
     documents: {
       marksheet: { type: String, default: null },
       experienceCertificate: { type: String, default: null },
@@ -115,6 +135,28 @@ facultySchema.index({ departmentId: 1, employmentStatus: 1 });
 /* ---------------- VIRTUALS ---------------- */
 facultySchema.virtual('fullName').get(function () {
   return `${this.firstName} ${this.lastName}`;
+});
+
+facultySchema.pre('validate', function () {
+  if (!this.facultyCode && this.employeeId) {
+    this.facultyCode = this.employeeId;
+  }
+
+  if (!this.employeeId && this.facultyCode) {
+    this.employeeId = this.facultyCode;
+  }
+
+  if (!this.phone && this.mobileNumber) {
+    this.phone = this.mobileNumber;
+  }
+
+  if (!this.mobileNumber && this.phone) {
+    this.mobileNumber = this.phone;
+  }
+
+  if (this.employmentStatus) {
+    this.isActive = !['RESIGNED', 'RETIRED'].includes(this.employmentStatus);
+  }
 });
 
 facultySchema.set('toJSON', { virtuals: true });

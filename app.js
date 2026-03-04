@@ -13,6 +13,11 @@ dotenv.config();
 import authRoutes from './routes/auth.routes.js';
 import studentRoutes from './routes/student.routes.js';
 import facultyRoutes from './routes/faculty.routes.js';
+import departmentRoutes from './routes/department.routes.js';
+import batchRoutes from './routes/batch.routes.js';
+import sectionRoutes from './routes/section.routes.js';
+import regulationRoutes from './routes/regulation.routes.js';
+import curriculumRoutes from './routes/curriculum.routes.js';
 import globalErrorHandler from './middleware/error.middleware.js';
 
 const app = express();
@@ -33,6 +38,11 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use('/api/auth', authRoutes);
 app.use('/api/students', studentRoutes);
 app.use('/api/faculty', facultyRoutes);
+app.use('/api/departments', departmentRoutes);
+app.use('/api/batches', batchRoutes);
+app.use('/api/sections', sectionRoutes);
+app.use('/api/regulations', regulationRoutes);
+app.use('/api/curriculums', curriculumRoutes);
 
 app.use(globalErrorHandler);
 

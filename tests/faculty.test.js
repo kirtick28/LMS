@@ -90,7 +90,9 @@ describe('Faculty API', () => {
 
       const user = await User.findOne({ email: payload.email });
       const faculty = await Faculty.findOne({ employeeId: payload.employeeId });
-      const department = await Department.findOne({ code: 'CSE' });
+      const department = await Department.findOne({
+        name: 'Computer Science and Engineering'
+      });
 
       expect(user).toBeTruthy();
       expect(user.role).toBe('FACULTY');
@@ -345,7 +347,7 @@ describe('Faculty API', () => {
           })
         );
 
-      const dept = await Department.findOne({ code: 'ECE' });
+      const dept = await Department.findOne({ name: 'ECE' });
 
       const [deptWiseRes, designationRes, listRes, dashboardRes] =
         await Promise.all([

@@ -44,4 +44,14 @@ const departmentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+departmentSchema.pre('validate', function () {
+  if (!this.code) {
+    const source = this.shortName || this.name || '';
+    this.code = String(source)
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+      .slice(0, 10);
+  }
+});
+
 export default mongoose.model('Department', departmentSchema);

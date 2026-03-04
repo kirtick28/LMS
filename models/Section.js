@@ -16,6 +16,12 @@ const sectionSchema = new mongoose.Schema(
       index: true
     },
 
+    capacity: {
+      type: Number,
+      default: 60,
+      min: 1
+    },
+
     isActive: {
       type: Boolean,
       default: true,
@@ -25,7 +31,13 @@ const sectionSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/* Prevent duplicate sections inside same batch & semester */
 sectionSchema.index({ name: 1, batchId: 1 }, { unique: true });
+sectionSchema.index({ batchId: 1, isActive: 1 });
+
+sectionSchema.pre('validate', function () {
+  if (this.name) {
+    this.name = String(this.name).trim().toUpperCase();
+  }
+});
 
 export default mongoose.model('Section', sectionSchema);

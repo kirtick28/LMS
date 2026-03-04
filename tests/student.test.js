@@ -317,5 +317,186 @@ describe('Student API', () => {
       expect(res.statusCode).toBe(400);
       expect(res.body.message).toBe('No file uploaded');
     });
+
+    it('filters GET /api/students by academicYearId', async () => {
+      const token = await getTokenByRole('ADMIN', 'admin-list-academic-year');
+
+      await request(app)
+        .post('/api/students')
+        .set('Authorization', `Bearer ${token}`)
+        .send(
+          createStudentPayload({
+            email: 'ay-2025-a@example.com',
+            registerNumber: 'AY2025A',
+            academicYearName: '2025-2026',
+            semesterNumber: 1
+          })
+        );
+
+      await request(app)
+        .post('/api/students')
+        .set('Authorization', `Bearer ${token}`)
+        .send(
+          createStudentPayload({
+            email: 'ay-2024-a@example.com',
+            registerNumber: 'AY2024A',
+            academicYearName: '2024-2025',
+            semesterNumber: 1
+          })
+        );
+
+      const ay2025 = await AcademicYear.findOne({ name: '2025-2026' });
+
+      const res = await request(app)
+        .get('/api/students')
+        .set('Authorization', `Bearer ${token}`)
+        .query({ academicYearId: ay2025._id.toString() });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.length).toBe(1);
+      expect(res.body[0].registerNumber).toBe('AY2025A');
+      expect(res.body[0].academicHistory.length).toBe(1);
+      expect(
+        String(
+          res.body[0].academicHistory[0].academicYearId?._id ||
+            res.body[0].academicHistory[0].academicYearId
+        )
+      ).toBe(ay2025._id.toString());
+    });
+
+    it('returns year-wise stats for specific academic year', async () => {
+      const token = await getTokenByRole('ADMIN', 'admin-stats-academic-year');
+
+      await request(app)
+        .post('/api/students')
+        .set('Authorization', `Bearer ${token}`)
+        .send(
+          createStudentPayload({
+            email: 'stats-ay-y1@example.com',
+            registerNumber: 'STATSY1',
+            academicYearName: '2025-2026',
+            semesterNumber: 1
+          })
+        );
+
+      await request(app)
+        .post('/api/students')
+        .set('Authorization', `Bearer ${token}`)
+        .send(
+          createStudentPayload({
+            email: 'stats-ay-y2@example.com',
+            registerNumber: 'STATSY2',
+            academicYearName: '2025-2026',
+            semesterNumber: 3
+          })
+        );
+
+      await request(app)
+        .post('/api/students')
+        .set('Authorization', `Bearer ${token}`)
+        .send(
+          createStudentPayload({
+            email: 'stats-ay-other@example.com',
+            registerNumber: 'STATSOT',
+            academicYearName: '2024-2025',
+            semesterNumber: 5
+          })
+        );
+
+      const ay2025 = await AcademicYear.findOne({ name: '2025-2026' });
+
+      const res = await request(app)
+        .get('/api/students/stats/year-wise')
+        .set('Authorization', `Bearer ${token}`)
+        .query({ academicYearId: ay2025._id.toString() });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.totalStudents).toBe(2);
+      expect(res.body.yearWise.firstYear).toBe(1);
+      expect(res.body.yearWise.secondYear).toBe(1);
+      expect(res.body.yearWise.thirdYear).toBe(0);
+      expect(res.body.yearWise.fourthYear).toBe(0);
+    });
+
+    it('returns department-wise year split for specific academic year', async () => {
+      const token = await getTokenByRole('ADMIN', 'admin-stats-deptwise');
+
+      await request(app)
+        .post('/api/students')
+        .set('Authorization', `Bearer ${token}`)
+        .send(
+          createStudentPayload({
+            email: 'dept-cse-y1@example.com',
+            registerNumber: 'DCSEY1',
+            departmentName: 'Computer Science and Engineering',
+            departmentCode: 'CSE',
+            academicYearName: '2026-2027',
+            semesterNumber: 1
+          })
+        );
+
+      await request(app)
+        .post('/api/students')
+        .set('Authorization', `Bearer ${token}`)
+        .send(
+          createStudentPayload({
+            email: 'dept-ece-y2@example.com',
+            registerNumber: 'DECEY2',
+            departmentName: 'Electronics and Communication Engineering',
+            departmentCode: 'ECE',
+            academicYearName: '2026-2027',
+            semesterNumber: 3
+          })
+        );
+
+      await request(app)
+        .post('/api/students')
+        .set('Authorization', `Bearer ${token}`)
+        .send(
+          createStudentPayload({
+            email: 'dept-cse-old@example.com',
+            registerNumber: 'DCSEOLD',
+            departmentName: 'Computer Science and Engineering',
+            departmentCode: 'CSE',
+            academicYearName: '2025-2026',
+            semesterNumber: 5
+          })
+        );
+
+      const ay = await AcademicYear.findOne({ name: '2026-2027' });
+
+      const res = await request(app)
+        .get('/api/students/stats/department-wise')
+        .set('Authorization', `Bearer ${token}`)
+        .query({ academicYearId: ay._id.toString() });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.totalDepartments).toBe(2);
+
+      const cse = res.body.departments.find(
+        (departmentRow) =>
+          departmentRow.department === 'Computer Science and Engineering'
+      );
+      const ece = res.body.departments.find(
+        (departmentRow) =>
+          departmentRow.department ===
+          'Electronics and Communication Engineering'
+      );
+
+      expect(cse.totalStudents).toBe(1);
+      expect(cse.yearWise.firstYear).toBe(1);
+      expect(ece.totalStudents).toBe(1);
+      expect(ece.yearWise.secondYear).toBe(1);
+    });
+
+    it('returns 404 for removed legacy endpoint /api/students/department-summary', async () => {
+      const token = await getTokenByRole('ADMIN', 'admin-legacy-summary');
+
+      const res = await request(app)
+        .get('/api/students/department-summary')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.statusCode).toBe(404);
+    });
   });
 });

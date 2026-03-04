@@ -3,6 +3,8 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import morgan from 'morgan';
 import path from 'path';
+import swaggerUi from 'swagger-ui-express';
+import swaggerSpec from './utils/swagger.js';
 
 // Environment variables Configuration
 dotenv.config();
@@ -21,6 +23,9 @@ app.use('/pdf_assets', express.static(path.join(process.cwd(), 'pdf_assets')));
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
+
+// Documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Routes
 app.use('/api/auth', authRoutes);

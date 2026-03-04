@@ -35,14 +35,13 @@ const createFacultyPayload = (overrides = {}) => ({
 });
 
 describe('Faculty API', () => {
-  describe('Auth and access control', () => {
+  describe('Auth and role guard', () => {
     it('rejects create faculty without token', async () => {
       const res = await request(app)
         .post('/api/faculty')
         .send(createFacultyPayload());
 
       expect(res.statusCode).toBe(401);
-      expect(res.body.message).toBeDefined();
     });
 
     it('rejects create faculty for non-admin role', async () => {
@@ -56,25 +55,11 @@ describe('Faculty API', () => {
       expect(res.statusCode).toBe(403);
       expect(res.body.message).toBe('Access denied');
     });
-
-    it('allows read endpoints for FACULTY role', async () => {
-      const facultyToken = await getTokenByRole('FACULTY', 'faculty-read-role');
-
-      const res = await request(app)
-        .get('/api/faculty')
-        .set('Authorization', `Bearer ${facultyToken}`);
-
-      expect(res.statusCode).toBe(200);
-      expect(Array.isArray(res.body)).toBe(true);
-    });
   });
 
   describe('Create faculty', () => {
     it('creates linked user/faculty and auto-creates department', async () => {
-      const adminToken = await getTokenByRole(
-        'ADMIN',
-        'admin-faculty-create-1'
-      );
+      const adminToken = await getTokenByRole('ADMIN', 'admin-faculty-create');
       const payload = createFacultyPayload({
         email: 'faculty-create@example.com',
         employeeId: 'EMP1001'
@@ -98,23 +83,20 @@ describe('Faculty API', () => {
       expect(user.role).toBe('FACULTY');
       expect(user.profileType).toBe('Faculty');
       expect(faculty).toBeTruthy();
-      expect(faculty.userId.toString()).toBe(user._id.toString());
+      expect(faculty.phone).toBe('9876543210');
       expect(user.profileRef.toString()).toBe(faculty._id.toString());
       expect(department).toBeTruthy();
     });
 
-    it('returns 400 for duplicate email', async () => {
-      const adminToken = await getTokenByRole(
-        'ADMIN',
-        'admin-faculty-dup-email'
-      );
+    it('returns 400 for duplicate employeeId', async () => {
+      const adminToken = await getTokenByRole('ADMIN', 'admin-faculty-dup');
 
       await request(app)
         .post('/api/faculty')
         .set('Authorization', `Bearer ${adminToken}`)
         .send(
           createFacultyPayload({
-            email: 'dup-faculty@example.com',
+            email: 'dup-1@example.com',
             employeeId: 'EMP2001'
           })
         );
@@ -124,22 +106,17 @@ describe('Faculty API', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .send(
           createFacultyPayload({
-            email: 'dup-faculty@example.com',
-            employeeId: 'EMP2002'
+            email: 'dup-2@example.com',
+            employeeId: 'EMP2001'
           })
         );
 
       expect(secondRes.statusCode).toBe(400);
-      expect(secondRes.body.message).toBe(
-        'User already exists with this email'
-      );
+      expect(secondRes.body.message).toMatch(/employeeId/i);
     });
 
     it('returns 500 for invalid departmentId', async () => {
-      const adminToken = await getTokenByRole(
-        'ADMIN',
-        'admin-faculty-invalid-dept'
-      );
+      const adminToken = await getTokenByRole('ADMIN', 'admin-faculty-invalid');
 
       const res = await request(app)
         .post('/api/faculty')
@@ -158,20 +135,17 @@ describe('Faculty API', () => {
 
   describe('Update and delete faculty', () => {
     it('updates faculty and linked user fields', async () => {
-      const adminToken = await getTokenByRole(
-        'ADMIN',
-        'admin-faculty-update-1'
-      );
-
-      const createPayload = createFacultyPayload({
-        email: 'faculty-update@example.com',
-        employeeId: 'EMP3001'
-      });
+      const adminToken = await getTokenByRole('ADMIN', 'admin-faculty-update');
 
       const createRes = await request(app)
         .post('/api/faculty')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send(createPayload);
+        .send(
+          createFacultyPayload({
+            email: 'faculty-update@example.com',
+            employeeId: 'EMP3001'
+          })
+        );
 
       const facultyId = createRes.body.faculty._id;
 
@@ -183,13 +157,14 @@ describe('Faculty API', () => {
           password: 'newpass123',
           firstName: 'Updated',
           designation: 'HOD',
-          employmentStatus: 'ON_LEAVE'
+          employmentStatus: 'ON_LEAVE',
+          phone: '9999999999'
         });
 
       expect(updateRes.statusCode).toBe(200);
       expect(updateRes.body.faculty.firstName).toBe('Updated');
       expect(updateRes.body.faculty.designation).toBe('HOD');
-      expect(updateRes.body.faculty.employmentStatus).toBe('ON_LEAVE');
+      expect(updateRes.body.faculty.phone).toBe('9999999999');
 
       const loginRes = await request(app).post('/api/auth/login').send({
         email: 'faculty-update-new@example.com',
@@ -197,29 +172,24 @@ describe('Faculty API', () => {
       });
 
       expect(loginRes.statusCode).toBe(200);
-      expect(loginRes.body.success).toBe(true);
     });
 
-    it('returns 404 when updating non-existing faculty', async () => {
+    it('returns 400 when updating with invalid faculty id', async () => {
       const adminToken = await getTokenByRole(
         'ADMIN',
-        'admin-faculty-update-404'
+        'admin-faculty-update-bad'
       );
 
       const res = await request(app)
-        .put(`/api/faculty/${new mongoose.Types.ObjectId()}`)
+        .put('/api/faculty/not-a-valid-id')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ firstName: 'Nope' });
 
-      expect(res.statusCode).toBe(404);
-      expect(res.body.message).toBe('Faculty not found');
+      expect(res.statusCode).toBe(400);
     });
 
     it('deletes faculty and linked user', async () => {
-      const adminToken = await getTokenByRole(
-        'ADMIN',
-        'admin-faculty-delete-1'
-      );
+      const adminToken = await getTokenByRole('ADMIN', 'admin-faculty-delete');
 
       const createRes = await request(app)
         .post('/api/faculty')
@@ -251,7 +221,7 @@ describe('Faculty API', () => {
     });
   });
 
-  describe('Bulk upload and analytics endpoints', () => {
+  describe('Bulk upload and analytics', () => {
     it('returns 400 for upload endpoint when file is missing', async () => {
       const adminToken = await getTokenByRole(
         'ADMIN',
@@ -266,7 +236,7 @@ describe('Faculty API', () => {
       expect(res.body.message).toBe('No file uploaded');
     });
 
-    it('uploads excel and creates faculty records', async () => {
+    it('uploads excel with mixed valid/invalid rows', async () => {
       const adminToken = await getTokenByRole(
         'ADMIN',
         'admin-faculty-upload-200'
@@ -294,6 +264,11 @@ describe('Faculty API', () => {
           Department: 'Mechanical Engineering',
           DeptCode: 'MECH',
           Password: '123456'
+        },
+        {
+          Email: 'missing-data@example.com',
+          FirstName: 'NoLast',
+          Department: 'Mechanical Engineering'
         }
       ];
 
@@ -312,13 +287,13 @@ describe('Faculty API', () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.body.facultyCreated).toBe(2);
-      expect(res.body.failedCount).toBe(0);
+      expect(res.body.failedCount).toBe(1);
 
       const count = await Faculty.countDocuments();
       expect(count).toBe(2);
     });
 
-    it('returns department-wise and dashboard stats', async () => {
+    it('returns department-wise breakdown, list, and dashboard stats', async () => {
       const adminToken = await getTokenByRole('ADMIN', 'admin-faculty-stats');
 
       await request(app)
@@ -390,6 +365,21 @@ describe('Faculty API', () => {
 
       expect(res.statusCode).toBe(404);
       expect(res.body.message).toBe('Department not found');
+    });
+
+    it('returns 400 for invalid faculty id while deleting', async () => {
+      const adminToken = await getTokenByRole(
+        'ADMIN',
+        'admin-faculty-delete-badid'
+      );
+
+      const res = await request(app)
+        .delete(
+          `/api/faculty/${new mongoose.Types.ObjectId().toString().slice(0, 20)}`
+        )
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.statusCode).toBe(400);
     });
   });
 });

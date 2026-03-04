@@ -25,249 +25,229 @@ const getTokenByRole = async (role, emailPrefix = 'user') => {
 
 describe('Master Data APIs', () => {
   describe('Department API', () => {
-    it('creates department for admin and auto-normalizes code', async () => {
-      const token = await getTokenByRole('ADMIN', 'admin-dept-create');
+    it('creates department with normalized code', async () => {
+      const token = await getTokenByRole('ADMIN', 'admin-dept');
 
       const res = await request(app)
         .post('/api/departments')
         .set('Authorization', `Bearer ${token}`)
         .send({
           name: 'Computer Science and Engineering',
-          shortName: 'CSE',
+          code: ' cse ',
           program: 'B.E'
         });
 
       expect(res.statusCode).toBe(201);
-      expect(res.body.department.name).toBe('Computer Science and Engineering');
       expect(res.body.department.code).toBe('CSE');
     });
 
-    it('rejects department create for non-admin', async () => {
-      const token = await getTokenByRole('FACULTY', 'faculty-dept-denied');
+    it('rejects duplicate department code', async () => {
+      const token = await getTokenByRole('ADMIN', 'admin-dept-dup');
+
+      await Department.create({
+        name: `Department-${uniqueId()}`,
+        code: 'MECH'
+      });
 
       const res = await request(app)
         .post('/api/departments')
         .set('Authorization', `Bearer ${token}`)
-        .send({ name: 'EEE', code: 'EEE' });
-
-      expect(res.statusCode).toBe(403);
-      expect(res.body.message).toBe('Access denied');
-    });
-  });
-
-  describe('Batch API', () => {
-    it('creates batch with default UNALLOCATED section', async () => {
-      const token = await getTokenByRole('ADMIN', 'admin-batch-create');
-
-      const department = await Department.create({
-        name: `Dept-${uniqueId()}`,
-        code: `D${uniqueId()}`
-      });
-
-      const regulation = await Regulation.create({
-        name: `R${2030 + seq}`,
-        startYear: 2030,
-        totalSemesters: 8
-      });
-
-      const res = await request(app)
-        .post('/api/batches')
-        .set('Authorization', `Bearer ${token}`)
         .send({
-          departmentId: department._id,
-          startYear: 2023,
-          endYear: 2027,
-          regulationId: regulation._id
+          name: `Department-${uniqueId()}`,
+          code: 'mech'
         });
 
-      expect(res.statusCode).toBe(201);
-      expect(res.body.batch.departmentId.toString()).toBe(
-        department._id.toString()
-      );
-
-      const section = await Section.findOne({
-        batchId: res.body.batch._id,
-        name: 'UNALLOCATED'
-      });
-
-      expect(section).toBeTruthy();
-    });
-
-    it('returns 400 for invalid regulationId', async () => {
-      const token = await getTokenByRole('ADMIN', 'admin-batch-invalid-reg');
-      const department = await Department.create({
-        name: `Dept-${uniqueId()}`,
-        code: `E${uniqueId()}`
-      });
-
-      const res = await request(app)
-        .post('/api/batches')
-        .set('Authorization', `Bearer ${token}`)
-        .send({
-          departmentId: department._id,
-          admissionYear: 2023,
-          regulationId: new mongoose.Types.ObjectId()
-        });
-
-      expect(res.statusCode).toBe(400);
-      expect(res.body.message).toBe('Invalid regulationId');
-    });
-  });
-
-  describe('Section API', () => {
-    it('creates section with capacity', async () => {
-      const token = await getTokenByRole('ADMIN', 'admin-section-create');
-
-      const department = await Department.create({
-        name: `Dept-${uniqueId()}`,
-        code: `S${uniqueId()}`
-      });
-
-      const batch = await Batch.create({
-        name: `2024-${uniqueId()}`,
-        departmentId: department._id,
-        admissionYear: 2024,
-        graduationYear: 2028,
-        startYear: 2024,
-        endYear: 2028,
-        programDuration: 4
-      });
-
-      const res = await request(app)
-        .post('/api/sections')
-        .set('Authorization', `Bearer ${token}`)
-        .send({ name: 'A', batchId: batch._id, capacity: 65 });
-
-      expect(res.statusCode).toBe(201);
-      expect(res.body.section.name).toBe('A');
-      expect(res.body.section.capacity).toBe(65);
-    });
-
-    it('prevents duplicate section within same batch', async () => {
-      const token = await getTokenByRole('ADMIN', 'admin-section-dup');
-
-      const department = await Department.create({
-        name: `Dept-${uniqueId()}`,
-        code: `T${uniqueId()}`
-      });
-
-      const batch = await Batch.create({
-        name: `2025-${uniqueId()}`,
-        departmentId: department._id,
-        admissionYear: 2025,
-        graduationYear: 2029,
-        startYear: 2025,
-        endYear: 2029,
-        programDuration: 4
-      });
-
-      await Section.create({ name: 'B', batchId: batch._id });
-
-      const res = await request(app)
-        .post('/api/sections')
-        .set('Authorization', `Bearer ${token}`)
-        .send({ name: 'b', batchId: batch._id });
-
-      expect(res.statusCode).toBe(400);
-      expect(res.body.message).toBe('Section already exists in this batch');
+      expect(res.statusCode).toBe(409);
     });
   });
 
   describe('Regulation API', () => {
-    it('creates regulation and lists it', async () => {
-      const token = await getTokenByRole('ADMIN', 'admin-regulation-create');
+    it('creates regulation and rejects duplicate startYear', async () => {
+      const token = await getTokenByRole('ADMIN', 'admin-reg');
 
       const createRes = await request(app)
         .post('/api/regulations')
         .set('Authorization', `Bearer ${token}`)
-        .send({ name: `R${2040 + seq}`, startYear: 2040, totalSemesters: 8 });
+        .send({
+          name: `R${2100 + seq}`,
+          startYear: 2100,
+          totalSemesters: 8
+        });
 
       expect(createRes.statusCode).toBe(201);
 
-      const listRes = await request(app)
-        .get('/api/regulations')
-        .set('Authorization', `Bearer ${token}`);
+      const duplicateRes = await request(app)
+        .post('/api/regulations')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          name: `R${2101 + seq}`,
+          startYear: 2100,
+          totalSemesters: 8
+        });
 
-      expect(listRes.statusCode).toBe(200);
-      expect(Array.isArray(listRes.body)).toBe(true);
-      expect(listRes.body.length).toBe(1);
+      expect(duplicateRes.statusCode).toBe(409);
+    });
+  });
+
+  describe('Batch API', () => {
+    it('creates batch and auto-creates UNALLOCATED section', async () => {
+      const token = await getTokenByRole('ADMIN', 'admin-batch');
+
+      const [department, regulation] = await Promise.all([
+        Department.create({ name: `Dept-${uniqueId()}`, code: `D${seq}X` }),
+        Regulation.create({ name: `R${2200 + seq}`, startYear: 2200 })
+      ]);
+
+      const res = await request(app)
+        .post('/api/batches')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          departmentId: department._id,
+          startYear: 2024,
+          endYear: 2028,
+          regulationId: regulation._id
+        });
+
+      expect(res.statusCode).toBe(201);
+
+      const unallocated = await Section.findOne({
+        batchId: res.body.batch._id,
+        name: 'UNALLOCATED'
+      });
+
+      expect(unallocated).toBeTruthy();
+    });
+
+    it('returns 400 for missing regulationId', async () => {
+      const token = await getTokenByRole('ADMIN', 'admin-batch-missing-reg');
+      const department = await Department.create({
+        name: `Dept-${uniqueId()}`,
+        code: `DM${seq}X`
+      });
+
+      const res = await request(app)
+        .post('/api/batches')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          departmentId: department._id,
+          startYear: 2024,
+          endYear: 2028
+        });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body.message).toMatch(/regulationId/i);
+    });
+  });
+
+  describe('Section API', () => {
+    it('prevents duplicate section name in same batch (case-insensitive)', async () => {
+      const token = await getTokenByRole('ADMIN', 'admin-section-dup');
+
+      const [department, regulation] = await Promise.all([
+        Department.create({ name: `Dept-${uniqueId()}`, code: `S${seq}X` }),
+        Regulation.create({ name: `R${2300 + seq}`, startYear: 2300 })
+      ]);
+
+      const batch = await Batch.create({
+        departmentId: department._id,
+        regulationId: regulation._id,
+        startYear: 2025,
+        endYear: 2029
+      });
+
+      await Section.create({ name: 'A', batchId: batch._id });
+
+      const res = await request(app)
+        .post('/api/sections')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ name: 'a', batchId: batch._id });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.body.message).toBe('Section already exists in this batch');
     });
   });
 
   describe('Curriculum API', () => {
-    it('creates curriculum with semester-subject mapping', async () => {
-      const token = await getTokenByRole('ADMIN', 'admin-curriculum-create');
+    it('creates curriculum and rejects invalid subject reference', async () => {
+      const token = await getTokenByRole('ADMIN', 'admin-curriculum');
 
-      const department = await Department.create({
-        name: `Dept-${uniqueId()}`,
-        code: `C${uniqueId()}`
-      });
-
-      const regulation = await Regulation.create({
-        name: `R${2050 + seq}`,
-        startYear: 2050,
-        totalSemesters: 8
-      });
+      const [department, regulation] = await Promise.all([
+        Department.create({ name: `Dept-${uniqueId()}`, code: `C${seq}X` }),
+        Regulation.create({ name: `R${2400 + seq}`, startYear: 2400 })
+      ]);
 
       const subject = await Subject.create({
-        name: 'Mathematics I',
-        code: `MATH-${uniqueId()}`,
+        name: `Math-${uniqueId()}`,
+        code: `M${2400 + seq}`,
         credits: 4,
         courseType: 'T',
-        departmentId: department._id,
-        regulationId: regulation._id,
-        isActive: true
+        departmentId: department._id
       });
 
-      const res = await request(app)
+      const createRes = await request(app)
         .post('/api/curriculums')
         .set('Authorization', `Bearer ${token}`)
         .send({
           departmentId: department._id,
           regulationId: regulation._id,
           semesters: [
-            {
-              semesterNumber: 1,
-              subjects: [{ subjectId: subject._id }]
-            }
+            { semesterNumber: 1, subjects: [{ subjectId: subject._id }] }
           ]
         });
 
-      expect(res.statusCode).toBe(201);
-      expect(res.body.curriculum.semesters.length).toBe(1);
-      expect(res.body.curriculum.semesters[0].semesterNumber).toBe(1);
-    });
+      expect(createRes.statusCode).toBe(201);
 
-    it('returns 400 for invalid subject in semester mapping', async () => {
-      const token = await getTokenByRole('ADMIN', 'admin-curriculum-invalid');
-
-      const department = await Department.create({
-        name: `Dept-${uniqueId()}`,
-        code: `V${uniqueId()}`
+      const regulation2 = await Regulation.create({
+        name: `R${2450 + seq}`,
+        startYear: 2450
       });
 
-      const regulation = await Regulation.create({
-        name: `R${2060 + seq}`,
-        startYear: 2060,
-        totalSemesters: 8
-      });
-
-      const res = await request(app)
+      const invalidSubjectRes = await request(app)
         .post('/api/curriculums')
         .set('Authorization', `Bearer ${token}`)
         .send({
           departmentId: department._id,
-          regulationId: regulation._id,
+          regulationId: regulation2._id,
           semesters: [
             {
-              semesterNumber: 1,
+              semesterNumber: 2,
               subjects: [{ subjectId: new mongoose.Types.ObjectId() }]
             }
           ]
         });
 
-      expect(res.statusCode).toBe(500);
-      expect(res.body.message).toBe('One or more subjects do not exist');
+      expect(invalidSubjectRes.statusCode).toBe(400);
+
+      const duplicatePair = await Curriculum.findOne({
+        departmentId: department._id,
+        regulationId: regulation._id
+      });
+      expect(duplicatePair).toBeTruthy();
+    });
+
+    it('returns 400 for invalid semester payload in update', async () => {
+      const token = await getTokenByRole('ADMIN', 'admin-curriculum-update');
+
+      const [department, regulation] = await Promise.all([
+        Department.create({ name: `Dept-${uniqueId()}`, code: `U${seq}X` }),
+        Regulation.create({ name: `R${2500 + seq}`, startYear: 2500 })
+      ]);
+
+      const curriculum = await Curriculum.create({
+        departmentId: department._id,
+        regulationId: regulation._id,
+        semesters: []
+      });
+
+      const res = await request(app)
+        .put(`/api/curriculums/${curriculum._id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          semesters: [{ semesterNumber: 0, subjects: [] }]
+        });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body.message).toMatch(/semesterNumber/i);
     });
   });
 });

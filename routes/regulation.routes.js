@@ -10,6 +10,12 @@ import { protect, authorize } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
+/**
+ * @swagger
+ * tags:
+ *   name: Regulations
+ *   description: Regulation master data management
+ */
 router.post('/', protect, authorize('ADMIN'), createRegulation);
 router.get('/', protect, getAllRegulations);
 router.get('/:id', protect, getRegulationById);

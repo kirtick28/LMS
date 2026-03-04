@@ -5,8 +5,8 @@ import {
   updateStudent,
   deleteStudent,
   getAllStudents,
-  getStudentsFiltered,
-  swapStudentSection,
+  // getStudentsFiltered,
+  // swapStudentSection,
   uploadMultipleStudents,
   getStudentDepartmentWise,
   getStudentStats
@@ -71,30 +71,30 @@ const upload = multer({ storage: multer.memoryStorage() });
  *         departmentCode:
  *           type: string
  *           example: CSE
- *         academicYearId:
+ *         regulationId:
  *           type: string
- *           description: Existing AcademicYear ObjectId
- *         academicYearName:
+ *           description: Existing Regulation ObjectId
+ *         regulationStartYear:
+ *           type: integer
+ *           example: 2024
+ *         regulationName:
  *           type: string
- *           example: 2026-2027
+ *           example: R2024
  *         startYear:
  *           type: integer
- *           example: 2026
+ *           example: 2024
  *         endYear:
  *           type: integer
- *           example: 2027
+ *           example: 2028
  *         batchId:
  *           type: string
  *           description: Existing Batch ObjectId
- *         batchName:
+ *         sectionId:
  *           type: string
- *           example: CSE-2026
- *         admissionYear:
- *           type: integer
- *           example: 2026
- *         graduationYear:
- *           type: integer
- *           example: 2030
+ *           description: Existing Section ObjectId (if omitted, defaults to UNALLOCATED)
+ *         sectionName:
+ *           type: string
+ *           example: A
  *         programDuration:
  *           type: integer
  *           example: 4
@@ -285,7 +285,7 @@ router.delete('/:id', protect, authorize('ADMIN'), deleteStudent);
  *     summary: Get all students
  *     tags: [Students]
  *     description: |
- *       Returns students with related user/department/batch/academic history population.
+ *       Returns students with related user, department, batch, and section data.
  *       Optional filters are supported using query params.
  *
  *       **Access:** Any authenticated user (STUDENT, FACULTY, ADMIN)
@@ -304,12 +304,6 @@ router.delete('/:id', protect, authorize('ADMIN'), deleteStudent);
  *         name: sectionId
  *         schema:
  *           type: string
- *         description: Filters by current section when academicYearId is not supplied
- *       - in: query
- *         name: academicYearId
- *         schema:
- *           type: string
- *         description: Filters students who have academic history in this academic year
  *     responses:
  *       200:
  *         description: Students fetched successfully
@@ -325,82 +319,6 @@ router.delete('/:id', protect, authorize('ADMIN'), deleteStudent);
  *         description: Server error
  */
 router.get('/', protect, getAllStudents);
-
-/**
- * @swagger
- * /api/students/filter:
- *   get:
- *     summary: Filter students by department, batch, and current section
- *     tags: [Students]
- *     description: |
- *       Filters students by optional departmentId, batchId, sectionId, and academicYearId.
- *       For backward compatibility; prefer using GET /api/students with query params.
- *
- *       **Access:** Any authenticated user (STUDENT, FACULTY, ADMIN)
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: departmentId
- *         schema:
- *           type: string
- *       - in: query
- *         name: batchId
- *         schema:
- *           type: string
- *       - in: query
- *         name: sectionId
- *         schema:
- *           type: string
- *       - in: query
- *         name: academicYearId
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Filtered students fetched successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/StudentListResponse'
- *       401:
- *         description: Unauthorized (JWT missing or invalid)
- *       500:
- *         description: Server error
- */
-router.get('/filter', protect, getStudentsFiltered);
-
-/**
- * @swagger
- * /api/students/swap-section:
- *   post:
- *     summary: Move selected students to a new section for a semester/year
- *     tags: [Students]
- *     description: |
- *       Marks previous current history entries as non-current and adds a new current academic history entry.
- *
- *       **Access:** Authenticated users with role ADMIN only
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/StudentSwapSectionRequest'
- *     responses:
- *       200:
- *         description: Students moved successfully
- *       400:
- *         description: No students selected
- *       401:
- *         description: Unauthorized (JWT missing or invalid)
- *       403:
- *         description: Access denied (requires ADMIN)
- *       500:
- *         description: Server error
- */
-router.post('/swap-section', protect, authorize('ADMIN'), swapStudentSection);
 
 /**
  * @swagger
@@ -454,17 +372,12 @@ router.post(
  *     tags: [Students]
  *     description: |
  *       Returns total students and year-wise counts.
- *       If academicYearId is provided, counts are computed for that specific academic year.
- *       If academicYearId is not provided, counts use current enrollment.
+ *       Optional `departmentId` filter is supported.
  *
  *       **Access:** Any authenticated user (STUDENT, FACULTY, ADMIN)
  *     security:
  *       - bearerAuth: []
  *     parameters:
- *       - in: query
- *         name: academicYearId
- *         schema:
- *           type: string
  *       - in: query
  *         name: departmentId
  *         schema:
@@ -487,17 +400,11 @@ router.get('/stats/year-wise', protect, getStudentStats);
  *     tags: [Students]
  *     description: |
  *       Returns department-wise totals and year-wise counts.
- *       If academicYearId is provided, counts are computed for that specific academic year.
- *       If academicYearId is not provided, counts use current enrollment.
+ *       Uses current student records and groups by department and year derived from semester number.
  *
  *       **Access:** Any authenticated user (STUDENT, FACULTY, ADMIN)
  *     security:
  *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: academicYearId
- *         schema:
- *           type: string
  *     responses:
  *       200:
  *         description: Department-wise student stats fetched successfully

@@ -10,6 +10,12 @@ import { protect, authorize } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
+/**
+ * @swagger
+ * tags:
+ *   name: Batches
+ *   description: Batch master data management
+ */
 router.post('/', protect, authorize('ADMIN'), createBatch);
 router.get('/', protect, getAllBatches);
 router.get('/:id', protect, getBatchById);

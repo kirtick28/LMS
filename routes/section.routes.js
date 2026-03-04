@@ -10,6 +10,12 @@ import { protect, authorize } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
+/**
+ * @swagger
+ * tags:
+ *   name: Sections
+ *   description: Section master data management
+ */
 router.post('/', protect, authorize('ADMIN'), createSection);
 router.get('/', protect, getAllSections);
 router.get('/:id', protect, getSectionById);

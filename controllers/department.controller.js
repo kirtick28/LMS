@@ -1,22 +1,33 @@
 import Department from '../models/Department.js';
+import mongoose from 'mongoose';
 
+/* ============================
+   CREATE DEPARTMENT
+============================ */
 export const createDepartment = async (req, res) => {
   try {
-    const { name, shortName, code, program, hodId, isActive } = req.body;
+    const { name, code, program, hodId, isActive } = req.body;
 
-    if (!name) {
-      return res.status(400).json({ message: 'name is required' });
+    if (!name || !code) {
+      return res.status(400).json({ message: 'name and code are required' });
     }
 
-    const existing = await Department.findOne({ name: String(name).trim() });
+    const normalizedName = String(name).trim();
+    const normalizedCode = String(code).toUpperCase().trim();
+
+    const existing = await Department.findOne({
+      $or: [{ name: normalizedName }, { code: normalizedCode }]
+    });
+
     if (existing) {
-      return res.status(400).json({ message: 'Department already exists' });
+      return res
+        .status(409)
+        .json({ message: 'Department with same name or code already exists' });
     }
 
     const department = await Department.create({
-      name,
-      shortName,
-      code,
+      name: normalizedName,
+      code: normalizedCode,
       program,
       hodId: hodId || null,
       isActive
@@ -31,9 +42,13 @@ export const createDepartment = async (req, res) => {
   }
 };
 
+/* ============================
+   GET ALL DEPARTMENTS
+============================ */
 export const getAllDepartments = async (req, res) => {
   try {
     const { isActive } = req.query;
+
     const filter = {};
 
     if (isActive !== undefined) {
@@ -50,9 +65,17 @@ export const getAllDepartments = async (req, res) => {
   }
 };
 
+/* ============================
+   GET DEPARTMENT BY ID
+============================ */
 export const getDepartmentById = async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid department id' });
+    }
+
     const department = await Department.findById(id).populate(
       'hodId',
       'firstName lastName employeeId designation'
@@ -68,10 +91,17 @@ export const getDepartmentById = async (req, res) => {
   }
 };
 
+/* ============================
+   UPDATE DEPARTMENT
+============================ */
 export const updateDepartment = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = { ...req.body };
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid department id' });
+    }
 
     if (updates.name) {
       const duplicate = await Department.findOne({
@@ -81,28 +111,34 @@ export const updateDepartment = async (req, res) => {
 
       if (duplicate) {
         return res
-          .status(400)
+          .status(409)
           .json({ message: 'Department name already exists' });
       }
+
+      updates.name = String(updates.name).trim();
     }
 
     if (updates.code) {
+      const normalizedCode = String(updates.code).toUpperCase().trim();
+
       const duplicateCode = await Department.findOne({
-        code: String(updates.code).toUpperCase().trim(),
+        code: normalizedCode,
         _id: { $ne: id }
       });
 
       if (duplicateCode) {
         return res
-          .status(400)
+          .status(409)
           .json({ message: 'Department code already exists' });
       }
+
+      updates.code = normalizedCode;
     }
 
     const department = await Department.findByIdAndUpdate(id, updates, {
       new: true,
       runValidators: true
-    });
+    }).populate('hodId', 'firstName lastName employeeId designation');
 
     if (!department) {
       return res.status(404).json({ message: 'Department not found' });
@@ -117,16 +153,26 @@ export const updateDepartment = async (req, res) => {
   }
 };
 
+/* ============================
+   DELETE DEPARTMENT
+============================ */
 export const deleteDepartment = async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid department id' });
+    }
+
     const department = await Department.findByIdAndDelete(id);
 
     if (!department) {
       return res.status(404).json({ message: 'Department not found' });
     }
 
-    return res.json({ message: 'Department deleted successfully' });
+    return res.json({
+      message: 'Department deleted successfully'
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

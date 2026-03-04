@@ -1,13 +1,25 @@
 import Student from '../models/Student.js';
 import User from '../models/User.js';
 import Department from '../models/Department.js';
-import AcademicYear from '../models/AcademicYear.js';
 import Batch from '../models/Batch.js';
 import Section from '../models/Section.js';
+import Regulation from '../models/Regulation.js';
 import mongoose from 'mongoose';
 import xlsx from 'xlsx';
 
+/* ======================================================
+   UTILS
+====================================================== */
+
 const DEFAULT_SECTION_NAME = 'UNALLOCATED';
+
+const toObjectId = (value, field) => {
+  if (!value) return null;
+  if (!mongoose.Types.ObjectId.isValid(value)) {
+    throw new Error(`Invalid ${field}`);
+  }
+  return new mongoose.Types.ObjectId(value);
+};
 
 const normalizeCode = (value) => {
   if (!value) return '';
@@ -17,150 +29,113 @@ const normalizeCode = (value) => {
     .slice(0, 10);
 };
 
-const getAcademicYearParts = (payload) => {
-  const rawAcademicYear = payload.academicYear || {};
-
-  const name =
-    payload.academicYearName ||
-    rawAcademicYear.name ||
-    (typeof rawAcademicYear === 'string' ? rawAcademicYear : undefined);
-
-  let startYear =
-    Number(payload.startYear || rawAcademicYear.startYear) || undefined;
-  let endYear = Number(payload.endYear || rawAcademicYear.endYear) || undefined;
-
-  if ((!startYear || !endYear) && name) {
-    const match = String(name).match(/(\d{4})\D+(\d{4})/);
-    if (match) {
-      startYear = Number(match[1]);
-      endYear = Number(match[2]);
-    }
-  }
-
-  if (startYear && !endYear) {
-    endYear = startYear + 1;
-  }
-
-  return {
-    name:
-      name || (startYear && endYear ? `${startYear}-${endYear}` : undefined),
-    startYear,
-    endYear
-  };
+const getYearFromSemester = (semester) => {
+  const sem = Number(semester);
+  if (!sem || sem < 1) return null;
+  const year = Math.ceil(sem / 2);
+  if (year < 1 || year > 4) return null;
+  return year;
 };
+
+/* ======================================================
+   RESOLVERS
+====================================================== */
 
 const resolveDepartment = async (payload) => {
   if (payload.departmentId) {
-    const department = await Department.findById(payload.departmentId);
-    if (!department) throw new Error('Invalid departmentId');
-    return department;
+    const dept = await Department.findById(payload.departmentId);
+    if (!dept) throw new Error('Invalid departmentId');
+    return dept;
   }
 
-  const rawDepartment = payload.department || {};
-  const name = payload.departmentName || rawDepartment.name;
-
-  if (!name) {
-    throw new Error('departmentId or departmentName is required');
+  if (!payload.departmentName) {
+    throw new Error('departmentId or departmentName required');
   }
 
-  const shortName =
-    payload.departmentShortName ||
-    payload.departmentCode ||
-    rawDepartment.shortName ||
-    rawDepartment.code;
+  const code = normalizeCode(payload.departmentCode || payload.departmentName);
 
-  const existing = await Department.findOne({
-    $or: [{ name }, ...(shortName ? [{ shortName }] : [])]
+  let dept = await Department.findOne({
+    $or: [{ name: payload.departmentName }, { code }]
   });
 
-  if (existing) return existing;
+  if (dept) return dept;
 
-  return Department.create({
-    name,
-    shortName: shortName || undefined,
-    program: rawDepartment.program || payload.program || 'B.E',
-    isActive: true
+  dept = await Department.create({
+    name: payload.departmentName,
+    code,
+    program: 'B.E'
   });
+
+  return dept;
 };
 
-const resolveAcademicYear = async (payload) => {
-  if (payload.academicYearId) {
-    const academicYear = await AcademicYear.findById(payload.academicYearId);
-    if (!academicYear) throw new Error('Invalid academicYearId');
-    return academicYear;
+const resolveRegulation = async (payload, startYear) => {
+  if (payload.regulationId) {
+    const regulation = await Regulation.findById(payload.regulationId);
+    if (!regulation) throw new Error('Invalid regulationId');
+    return regulation;
   }
 
-  const { name, startYear, endYear } = getAcademicYearParts(payload);
+  const resolvedStartYear = Number(payload.regulationStartYear || startYear);
 
-  if (!name && (!startYear || !endYear)) {
-    const currentAcademicYear = await AcademicYear.findOne({
-      isCurrent: true,
-      isActive: true
+  if (!resolvedStartYear) {
+    throw new Error('regulationId or regulationStartYear required');
+  }
+
+  const regulationName = String(
+    payload.regulationName || `R${resolvedStartYear}`
+  )
+    .trim()
+    .toUpperCase();
+
+  let regulation = await Regulation.findOne({
+    $or: [{ name: regulationName }, { startYear: resolvedStartYear }]
+  });
+
+  if (!regulation) {
+    regulation = await Regulation.create({
+      name: regulationName,
+      startYear: resolvedStartYear,
+      totalSemesters: Number(payload.totalSemesters) || 8
     });
-
-    if (currentAcademicYear) return currentAcademicYear;
-
-    throw new Error(
-      'academicYearId or academicYear details (academicYearName/startYear/endYear) are required'
-    );
   }
 
-  const existing = await AcademicYear.findOne({
-    $or: [
-      ...(name ? [{ name }] : []),
-      ...(startYear && endYear ? [{ startYear, endYear }] : [])
-    ]
-  });
-
-  if (existing) return existing;
-
-  return AcademicYear.create({
-    name: name || `${startYear}-${endYear}`,
-    startYear,
-    endYear,
-    isCurrent: false,
-    isActive: true
-  });
+  return regulation;
 };
 
-const resolveBatch = async (payload, department, academicYear) => {
+const resolveBatch = async (payload, department) => {
   if (payload.batchId) {
     const batch = await Batch.findById(payload.batchId);
     if (!batch) throw new Error('Invalid batchId');
     return batch;
   }
 
-  const rawBatch = payload.batch || {};
-  const admissionYear =
-    Number(payload.admissionYear || rawBatch.admissionYear) ||
-    academicYear.startYear;
-  const programDuration =
-    Number(payload.programDuration || rawBatch.programDuration) || 4;
-  const graduationYear =
-    Number(payload.graduationYear || rawBatch.graduationYear) ||
-    admissionYear + programDuration;
+  const startYear = Number(payload.startYear || payload.admissionYear);
+  const endYear = Number(payload.endYear);
 
-  const existing = await Batch.findOne({
+  if (!startYear || !endYear) {
+    throw new Error('Batch requires startYear and endYear');
+  }
+
+  const regulation = await resolveRegulation(payload, startYear);
+
+  let batch = await Batch.findOne({
     departmentId: department._id,
-    admissionYear,
-    graduationYear
+    startYear,
+    endYear
   });
 
-  if (existing) return existing;
+  if (batch) return batch;
 
-  const batchName =
-    payload.batchName ||
-    rawBatch.name ||
-    `${department.shortName || normalizeCode(department.name)}-${admissionYear}`;
-
-  return Batch.create({
-    name: batchName,
+  batch = await Batch.create({
     departmentId: department._id,
-    admissionYear,
-    graduationYear,
-    programDuration,
-    isActive: true
+    startYear,
+    endYear,
+    regulationId: regulation._id,
+    programDuration: Number(payload.programDuration) || 4
   });
+
+  return batch;
 };
 
 const resolveSection = async (payload, batch, forceUnallocated = false) => {
@@ -170,124 +145,55 @@ const resolveSection = async (payload, batch, forceUnallocated = false) => {
     return section;
   }
 
-  const rawSection = payload.section || {};
-  const targetName = forceUnallocated
+  const name = forceUnallocated
     ? DEFAULT_SECTION_NAME
-    : payload.sectionName || rawSection.name || DEFAULT_SECTION_NAME;
+    : payload.sectionName || DEFAULT_SECTION_NAME;
 
-  const normalizedName = String(targetName).trim().toUpperCase();
+  const normalized = String(name).trim().toUpperCase();
 
   let section = await Section.findOne({
     batchId: batch._id,
-    name: normalizedName
+    name: normalized
   });
 
   if (!section) {
     section = await Section.create({
-      name: normalizedName,
       batchId: batch._id,
-      isActive: true
+      name: normalized
     });
   }
 
   return section;
 };
 
-const resolveStudentAcademicContext = async (
-  payload,
-  forceUnallocated = false
-) => {
+const resolveStudentContext = async (payload, forceUnallocated = false) => {
   const department = await resolveDepartment(payload);
-  const academicYear = await resolveAcademicYear(payload);
-  const batch = await resolveBatch(payload, department, academicYear);
+  const batch = await resolveBatch(payload, department);
   const section = await resolveSection(payload, batch, forceUnallocated);
 
   return {
     departmentId: department._id,
-    academicYear: academicYear,
-    academicYearId: academicYear._id,
     batchId: batch._id,
     sectionId: section._id
   };
 };
 
-const getAcademicYearLabel = (academicYear) => {
-  if (!academicYear) return '';
-  if (academicYear.name) return String(academicYear.name);
-  if (academicYear.startYear && academicYear.endYear) {
-    return `${academicYear.startYear}-${academicYear.endYear}`;
-  }
-  return '';
-};
-
-const toObjectId = (value, fieldName) => {
-  if (!value) return null;
-  if (!mongoose.Types.ObjectId.isValid(value)) {
-    throw new Error(`Invalid ${fieldName}`);
-  }
-  return new mongoose.Types.ObjectId(value);
-};
-
-const getYearFromSemester = (semesterNumber) => {
-  const semester = Number(semesterNumber);
-  if (!Number.isFinite(semester) || semester <= 0) return null;
-  const year = Math.ceil(semester / 2);
-  return year >= 1 && year <= 4 ? year : null;
-};
-
-const buildStudentQueryFilter = (query) => {
-  const { departmentId, batchId, sectionId, academicYearId } = query;
-
-  const filter = {};
-  if (departmentId)
-    filter.departmentId = toObjectId(departmentId, 'departmentId');
-  if (batchId) filter.batchId = toObjectId(batchId, 'batchId');
-
-  const elemMatch = {};
-
-  if (academicYearId) {
-    elemMatch.academicYearId = toObjectId(academicYearId, 'academicYearId');
+const handleBadRequest = (res, error) => {
+  if (
+    /Invalid .*Id/i.test(error.message) ||
+    /require/i.test(error.message) ||
+    /already exists/i.test(error.message)
+  ) {
+    return res.status(400).json({ message: error.message });
   }
 
-  if (sectionId) {
-    elemMatch.sectionId = toObjectId(sectionId, 'sectionId');
-
-    if (!academicYearId) {
-      elemMatch.isCurrent = true;
-    }
-  }
-
-  if (Object.keys(elemMatch).length > 0) {
-    filter.academicHistory = { $elemMatch: elemMatch };
-  }
-
-  return {
-    filter,
-    academicYearId: elemMatch.academicYearId || null
-  };
-};
-
-const trimAcademicHistoryByYear = (students, academicYearObjectId) => {
-  if (!academicYearObjectId) return students;
-
-  const academicYearIdString = String(academicYearObjectId);
-
-  return students.map((student) => {
-    const studentObj = student.toObject();
-    studentObj.academicHistory = studentObj.academicHistory.filter(
-      (history) => {
-        const historyYearId =
-          history.academicYearId?._id || history.academicYearId;
-        return String(historyYearId) === academicYearIdString;
-      }
-    );
-    return studentObj;
-  });
+  return res.status(500).json({ message: error.message });
 };
 
 /* ======================================================
-   CREATE STUDENT (Manual)
+   CREATE STUDENT
 ====================================================== */
+
 export const addStudent = async (req, res) => {
   try {
     const {
@@ -308,8 +214,12 @@ export const addStudent = async (req, res) => {
       });
     }
 
-    /* 1️⃣ Prevent duplicate email */
-    const existingUser = await User.findOne({ email });
+    const normalizedEmail = String(email).toLowerCase().trim();
+    const normalizedRegisterNumber = String(registerNumber)
+      .toUpperCase()
+      .trim();
+
+    const existingUser = await User.findOne({ email: normalizedEmail });
 
     if (existingUser) {
       return res.status(400).json({
@@ -317,8 +227,9 @@ export const addStudent = async (req, res) => {
       });
     }
 
-    /* 2️⃣ Prevent duplicate register number */
-    const existingStudent = await Student.findOne({ registerNumber });
+    const existingStudent = await Student.findOne({
+      registerNumber: normalizedRegisterNumber
+    });
 
     if (existingStudent) {
       return res.status(400).json({
@@ -326,11 +237,10 @@ export const addStudent = async (req, res) => {
       });
     }
 
-    const context = await resolveStudentAcademicContext(req.body, true);
+    const context = await resolveStudentContext(req.body, true);
 
-    /* 3️⃣ Create User */
     const user = await User.create({
-      email,
+      email: normalizedEmail,
       password,
       role: 'STUDENT',
       gender,
@@ -338,7 +248,6 @@ export const addStudent = async (req, res) => {
       profileType: 'Student'
     });
 
-    /* 4️⃣ Create Student Profile */
     const student = await Student.create({
       userId: user._id,
       departmentId: context.departmentId,
@@ -346,48 +255,73 @@ export const addStudent = async (req, res) => {
       sectionId: context.sectionId,
       firstName,
       lastName,
-      registerNumber,
+      registerNumber: normalizedRegisterNumber,
       rollNumber,
-      semesterNumber: Number(semesterNumber) || 1,
-      academicYearLabel: getAcademicYearLabel(context.academicYear),
-      academicHistory: [
-        {
-          academicYearId: context.academicYearId,
-          semesterNumber: Number(semesterNumber) || 1,
-          sectionId: context.sectionId,
-          isCurrent: true
-        }
-      ]
+      semesterNumber: Number(semesterNumber) || 1
     });
 
-    /* 5️⃣ Link profile to user */
     user.profileRef = student._id;
     await user.save();
 
-    res.status(201).json({
+    return res.status(201).json({
       message: 'Student created successfully',
       student
     });
   } catch (error) {
-    console.error('Add Student Error:', error);
-    res.status(500).json({ message: error.message });
+    return handleBadRequest(res, error);
   }
 };
 
 /* ======================================================
    UPDATE STUDENT
 ====================================================== */
+
 export const updateStudent = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid student id' });
+    }
+
     const student = await Student.findById(id);
 
-    if (!student) return res.status(404).json({ message: 'Student not found' });
+    if (!student) {
+      return res.status(404).json({ message: 'Student not found' });
+    }
 
     const user = await User.findById(student.userId);
 
-    /* Update Student fields */
+    if (req.body.registerNumber !== undefined) {
+      const normalizedRegisterNumber = String(req.body.registerNumber)
+        .toUpperCase()
+        .trim();
+
+      const duplicate = await Student.findOne({
+        registerNumber: normalizedRegisterNumber,
+        _id: { $ne: id }
+      });
+
+      if (duplicate) {
+        return res
+          .status(400)
+          .json({ message: 'Register Number already exists' });
+      }
+
+      req.body.registerNumber = normalizedRegisterNumber;
+    }
+
+    const objectIdFields = ['departmentId', 'batchId', 'sectionId'];
+
+    for (const field of objectIdFields) {
+      if (
+        req.body[field] !== undefined &&
+        !mongoose.Types.ObjectId.isValid(req.body[field])
+      ) {
+        return res.status(400).json({ message: `Invalid ${field}` });
+      }
+    }
+
     const studentFields = [
       'firstName',
       'lastName',
@@ -397,9 +331,8 @@ export const updateStudent = async (req, res) => {
       'batchId',
       'sectionId',
       'semesterNumber',
-      'academicYearLabel',
-      'entryType',
-      'academicStatus'
+      'academicStatus',
+      'entryType'
     ];
 
     studentFields.forEach((field) => {
@@ -410,7 +343,6 @@ export const updateStudent = async (req, res) => {
 
     await student.save();
 
-    /* Update User fields */
     if (user) {
       if (req.body.password) user.password = req.body.password;
       if (req.body.gender) user.gender = req.body.gender;
@@ -419,263 +351,190 @@ export const updateStudent = async (req, res) => {
       await user.save();
     }
 
-    res.json({
+    return res.json({
       message: 'Student updated successfully',
       student
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return handleBadRequest(res, error);
   }
 };
 
 /* ======================================================
    DELETE STUDENT
 ====================================================== */
+
 export const deleteStudent = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid student id' });
+    }
+
     const student = await Student.findById(id);
 
-    if (!student) return res.status(404).json({ message: 'Student not found' });
+    if (!student) {
+      return res.status(404).json({ message: 'Student not found' });
+    }
 
     await User.findByIdAndDelete(student.userId);
     await Student.findByIdAndDelete(id);
 
-    res.json({ message: 'Student deleted successfully' });
+    return res.json({ message: 'Student deleted successfully' });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return handleBadRequest(res, error);
   }
 };
 
 /* ======================================================
    GET ALL STUDENTS
 ====================================================== */
+
 export const getAllStudents = async (req, res) => {
   try {
-    const { filter, academicYearId } = buildStudentQueryFilter(req.query);
+    const filter = {};
+
+    if (req.query.departmentId) {
+      filter.departmentId = toObjectId(req.query.departmentId, 'departmentId');
+    }
+
+    if (req.query.batchId) {
+      filter.batchId = toObjectId(req.query.batchId, 'batchId');
+    }
+
+    if (req.query.sectionId) {
+      filter.sectionId = toObjectId(req.query.sectionId, 'sectionId');
+    }
 
     const students = await Student.find(filter)
       .populate('userId', 'email gender dateOfBirth isActive')
-      .populate('departmentId')
-      .populate('batchId')
-      .populate('academicHistory.sectionId')
-      .populate('academicHistory.academicYearId');
+      .populate('departmentId', 'name code program')
+      .populate('batchId', 'name startYear endYear regulationId')
+      .populate('sectionId', 'name capacity isActive');
 
-    res.json(trimAcademicHistoryByYear(students, academicYearId));
+    return res.json(students);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return handleBadRequest(res, error);
   }
 };
 
 /* ======================================================
-   FILTER STUDENTS
+   BULK UPLOAD STUDENTS
 ====================================================== */
-export const getStudentsFiltered = async (req, res) => {
-  try {
-    const { filter, academicYearId } = buildStudentQueryFilter(req.query);
 
-    const students = await Student.find(filter)
-      .populate('userId', 'email')
-      .populate('departmentId')
-      .populate('batchId')
-      .populate('academicHistory.sectionId')
-      .populate('academicHistory.academicYearId');
-
-    const filteredStudents = trimAcademicHistoryByYear(
-      students,
-      academicYearId
-    );
-
-    res.json({
-      total: filteredStudents.length,
-      students: filteredStudents
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-/* ======================================================
-   SECTION TRANSFER (NEW STRUCTURE)
-====================================================== */
-export const swapStudentSection = async (req, res) => {
-  try {
-    const { studentIds, newSectionId, academicYearId, semesterNumber } =
-      req.body;
-
-    if (!studentIds || studentIds.length === 0) {
-      return res.status(400).json({
-        message: 'No students selected'
-      });
-    }
-
-    const students = await Student.find({ _id: { $in: studentIds } });
-
-    for (const student of students) {
-      /* Remove previous current flag */
-      student.academicHistory.forEach((h) => {
-        if (h.isCurrent) h.isCurrent = false;
-      });
-
-      /* Add new history entry */
-      student.academicHistory.push({
-        academicYearId,
-        semesterNumber,
-        sectionId: newSectionId,
-        isCurrent: true
-      });
-
-      student.sectionId = newSectionId;
-      student.semesterNumber = Number(semesterNumber) || student.semesterNumber;
-
-      if (academicYearId) {
-        const academicYear = await AcademicYear.findById(academicYearId);
-        if (academicYear) {
-          student.academicYearLabel = getAcademicYearLabel(academicYear);
-        }
-      }
-
-      await student.save();
-    }
-
-    res.json({
-      message: `Moved ${students.length} students`,
-      moved: students.length
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-/* ======================================================
-   BULK UPLOAD STUDENTS (Excel)
-====================================================== */
 export const uploadMultipleStudents = async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
 
     const workbook = req.file.buffer
       ? xlsx.read(req.file.buffer, { type: 'buffer' })
       : xlsx.readFile(req.file.path);
-    const sheet = workbook.SheetNames[0];
 
+    const sheet = workbook.SheetNames[0];
     const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheet]);
 
     let inserted = 0;
+    let skipped = 0;
+    let failed = 0;
 
     for (const row of rows) {
-      const {
-        email,
-        password,
-        firstName,
-        lastName,
-        registerNumber,
-        semesterNumber
-      } = row;
+      try {
+        const {
+          email,
+          password,
+          firstName,
+          lastName,
+          registerNumber,
+          semesterNumber
+        } = row;
 
-      const existing = await User.findOne({ email });
+        if (!email || !firstName || !lastName || !registerNumber) {
+          failed++;
+          continue;
+        }
 
-      if (existing) continue;
+        const normalizedEmail = String(email).toLowerCase().trim();
+        const normalizedRegister = String(registerNumber).toUpperCase().trim();
 
-      const context = await resolveStudentAcademicContext(row, true);
+        const [existingUser, existingStudent] = await Promise.all([
+          User.findOne({ email: normalizedEmail }),
+          Student.findOne({ registerNumber: normalizedRegister })
+        ]);
 
-      const user = await User.create({
-        email,
-        password: password || '123456',
-        role: 'STUDENT',
-        profileType: 'Student'
-      });
+        if (existingUser || existingStudent) {
+          skipped++;
+          continue;
+        }
 
-      const student = await Student.create({
-        userId: user._id,
-        departmentId: context.departmentId,
-        batchId: context.batchId,
-        sectionId: context.sectionId,
-        firstName,
-        lastName,
-        registerNumber,
-        semesterNumber: Number(semesterNumber) || 1,
-        academicYearLabel: getAcademicYearLabel(context.academicYear),
-        academicHistory: [
-          {
-            academicYearId: context.academicYearId,
-            semesterNumber: Number(semesterNumber) || 1,
-            sectionId: context.sectionId,
-            isCurrent: true
-          }
-        ]
-      });
+        const context = await resolveStudentContext(row, true);
 
-      user.profileRef = student._id;
-      await user.save();
+        const user = await User.create({
+          email: normalizedEmail,
+          password: password || '123456',
+          role: 'STUDENT',
+          profileType: 'Student'
+        });
 
-      inserted++;
+        const student = await Student.create({
+          userId: user._id,
+          departmentId: context.departmentId,
+          batchId: context.batchId,
+          sectionId: context.sectionId,
+          firstName,
+          lastName,
+          registerNumber: normalizedRegister,
+          semesterNumber: Number(semesterNumber) || 1
+        });
+
+        user.profileRef = student._id;
+        await user.save();
+
+        inserted++;
+      } catch (error) {
+        failed++;
+      }
     }
 
-    res.json({
+    return res.json({
       message: 'Upload completed',
-      inserted
+      inserted,
+      skipped,
+      failed
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return handleBadRequest(res, error);
   }
 };
 
 /* ======================================================
-   STUDENT STATS (TOTAL + 1ST TO 4TH YEAR)
+   STUDENT STATS
 ====================================================== */
+
 export const getStudentStats = async (req, res) => {
   try {
-    const { departmentId, academicYearId } = req.query;
+    const { departmentId } = req.query;
 
-    const baseMatch = {};
+    const filter = {};
 
     if (departmentId) {
-      baseMatch.departmentId = toObjectId(departmentId, 'departmentId');
+      filter.departmentId = toObjectId(departmentId, 'departmentId');
     }
 
-    const historyMatch = academicYearId
-      ? {
-          'academicHistory.academicYearId': toObjectId(
-            academicYearId,
-            'academicYearId'
-          )
-        }
-      : { 'academicHistory.isCurrent': true };
+    const students = await Student.find(filter);
 
-    const rows = await Student.aggregate([
-      { $match: baseMatch },
-      { $unwind: '$academicHistory' },
-      { $match: historyMatch },
-      { $sort: { 'academicHistory.semesterNumber': -1 } },
-      {
-        $group: {
-          _id: '$_id',
-          semesterNumber: { $first: '$academicHistory.semesterNumber' }
-        }
-      }
-    ]);
+    const yearMap = { 1: 0, 2: 0, 3: 0, 4: 0 };
 
-    const yearMap = {
-      1: 0,
-      2: 0,
-      3: 0,
-      4: 0
-    };
-
-    rows.forEach((row) => {
-      const year = getYearFromSemester(row.semesterNumber);
-      if (year) yearMap[year] += 1;
+    students.forEach((student) => {
+      const year = getYearFromSemester(student.semesterNumber);
+      if (year) yearMap[year]++;
     });
 
     const totalStudents = yearMap[1] + yearMap[2] + yearMap[3] + yearMap[4];
 
-    res.json({
-      filters: {
-        departmentId: departmentId || null,
-        academicYearId: academicYearId || null
-      },
+    return res.json({
       totalStudents,
       yearWise: {
         firstYear: yearMap[1],
@@ -685,37 +544,17 @@ export const getStudentStats = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return handleBadRequest(res, error);
   }
 };
 
 /* ======================================================
-   DEPARTMENT-WISE STUDENT COUNT (TOTAL + 1ST TO 4TH YEAR)
+   DEPARTMENT WISE STUDENT COUNT
 ====================================================== */
+
 export const getStudentDepartmentWise = async (req, res) => {
   try {
-    const { academicYearId } = req.query;
-
-    const historyMatch = academicYearId
-      ? {
-          'academicHistory.academicYearId': toObjectId(
-            academicYearId,
-            'academicYearId'
-          )
-        }
-      : { 'academicHistory.isCurrent': true };
-
-    const rows = await Student.aggregate([
-      { $unwind: '$academicHistory' },
-      { $match: historyMatch },
-      { $sort: { 'academicHistory.semesterNumber': -1 } },
-      {
-        $group: {
-          _id: '$_id',
-          departmentId: { $first: '$departmentId' },
-          semesterNumber: { $first: '$academicHistory.semesterNumber' }
-        }
-      },
+    const students = await Student.aggregate([
       {
         $lookup: {
           from: 'departments',
@@ -724,27 +563,21 @@ export const getStudentDepartmentWise = async (req, res) => {
           as: 'department'
         }
       },
-      {
-        $unwind: {
-          path: '$department',
-          preserveNullAndEmptyArrays: true
-        }
-      }
+      { $unwind: '$department' }
     ]);
 
     const grouped = {};
 
-    rows.forEach((row) => {
-      const year = getYearFromSemester(row.semesterNumber);
+    students.forEach((student) => {
+      const year = getYearFromSemester(student.semesterNumber);
       if (!year) return;
 
-      const deptId = String(row.departmentId);
-      const deptName = row.department?.name || 'Unknown Department';
+      const deptId = String(student.departmentId);
 
       if (!grouped[deptId]) {
         grouped[deptId] = {
-          departmentId: row.departmentId,
-          department: deptName,
+          departmentId: student.departmentId,
+          department: student.department.name,
           totalStudents: 0,
           yearWise: {
             firstYear: 0,
@@ -755,25 +588,21 @@ export const getStudentDepartmentWise = async (req, res) => {
         };
       }
 
-      grouped[deptId].totalStudents += 1;
-      if (year === 1) grouped[deptId].yearWise.firstYear += 1;
-      if (year === 2) grouped[deptId].yearWise.secondYear += 1;
-      if (year === 3) grouped[deptId].yearWise.thirdYear += 1;
-      if (year === 4) grouped[deptId].yearWise.fourthYear += 1;
+      grouped[deptId].totalStudents++;
+
+      if (year === 1) grouped[deptId].yearWise.firstYear++;
+      if (year === 2) grouped[deptId].yearWise.secondYear++;
+      if (year === 3) grouped[deptId].yearWise.thirdYear++;
+      if (year === 4) grouped[deptId].yearWise.fourthYear++;
     });
 
-    const data = Object.values(grouped).sort((a, b) =>
-      String(a.department).localeCompare(String(b.department))
-    );
+    const data = Object.values(grouped);
 
-    res.json({
-      filters: {
-        academicYearId: academicYearId || null
-      },
+    return res.json({
       totalDepartments: data.length,
       departments: data
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return handleBadRequest(res, error);
   }
 };

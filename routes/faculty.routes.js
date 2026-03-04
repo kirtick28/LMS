@@ -56,6 +56,10 @@ const upload = multer({ storage: multer.memoryStorage() });
  *         mobileNumber:
  *           type: string
  *           example: 9876543210
+ *         phone:
+ *           type: string
+ *           description: Alias for mobileNumber
+ *           example: 9876543210
  *         employeeId:
  *           type: string
  *           example: EMP1001
@@ -107,6 +111,8 @@ const upload = multer({ storage: multer.memoryStorage() });
  *         lastName:
  *           type: string
  *         mobileNumber:
+ *           type: string
+ *         phone:
  *           type: string
  *         employeeId:
  *           type: string
@@ -272,7 +278,6 @@ router.post(
  *     tags: [Faculty]
  *     description: |
  *       Updates Faculty fields plus linked User fields such as email/password/gender/dateOfBirth/isActive.
- *       Optional document uploads supported via multipart fields: `marksheet`, `experienceCertificate`, `degreeCertificate`.
  *
  *       **Access:** Authenticated users with role ADMIN only
  *     security:
@@ -524,7 +529,7 @@ router.get(
  *     summary: Faculty dashboard summary stats
  *     tags: [Faculty]
  *     description: |
- *       Returns overall faculty count, designation groups, and employment status distribution.
+ *       Returns overall faculty count and grouped designation statistics.
  *
  *       **Access:** Authenticated users with role FACULTY or ADMIN
  *     security:

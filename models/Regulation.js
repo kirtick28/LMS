@@ -35,7 +35,6 @@ const regulationSchema = new mongoose.Schema(
 
 /* ---------------- INDEXES ---------------- */
 regulationSchema.index({ startYear: 1, totalSemesters: 1 });
-regulationSchema.index({ isActive: 1 });
 
 /* ---------------- MIDDLEWARE ---------------- */
 regulationSchema.pre('validate', function () {

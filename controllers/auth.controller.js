@@ -11,6 +11,10 @@ export const registerUser = async (req, res, next) => {
   try {
     const { email, password, role } = req.body;
 
+    if (!email || !password || !role) {
+      return next(new AppError('email, password and role are required', 400));
+    }
+
     const existingUser = await User.findOne({ email });
 
     if (existingUser) {
@@ -45,6 +49,10 @@ export const registerUser = async (req, res, next) => {
 export const loginUser = async (req, res, next) => {
   try {
     const { email, password } = req.body;
+
+    if (!email || !password) {
+      return next(new AppError('Email and password required', 400));
+    }
 
     const user = await User.findOne({ email }).select('+password');
 
@@ -87,9 +95,12 @@ export const forgotPassword = async (req, res, next) => {
   try {
     const { email } = req.body;
 
+    if (!email) {
+      return next(new AppError('Email is required', 400));
+    }
+
     const user = await User.findOne({ email });
 
-    // Do not reveal whether user exists
     if (!user) {
       return res.status(200).json({
         success: true,
@@ -146,6 +157,10 @@ export const resetPassword = async (req, res, next) => {
   try {
     const { token, newPassword } = req.body;
 
+    if (!token || !newPassword) {
+      return next(new AppError('Token and newPassword required', 400));
+    }
+
     const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
 
     const user = await User.findOne({
@@ -178,6 +193,12 @@ export const resetPassword = async (req, res, next) => {
 export const changePassword = async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return next(
+        new AppError('currentPassword and newPassword required', 400)
+      );
+    }
 
     const user = await User.findById(req.user._id).select('+password');
 

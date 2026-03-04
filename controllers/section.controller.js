@@ -1,6 +1,27 @@
+import mongoose from 'mongoose';
 import Section from '../models/Section.js';
 import Batch from '../models/Batch.js';
 
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+
+const batchPopulateConfig = {
+  path: 'batchId',
+  select: 'name startYear endYear programDuration departmentId regulationId',
+  populate: [
+    {
+      path: 'departmentId',
+      select: 'name code'
+    },
+    {
+      path: 'regulationId',
+      select: 'name startYear totalSemesters'
+    }
+  ]
+};
+
+/* ============================
+   CREATE SECTION
+============================ */
 export const createSection = async (req, res) => {
   try {
     const { name, batchId, capacity, isActive } = req.body;
@@ -9,9 +30,13 @@ export const createSection = async (req, res) => {
       return res.status(400).json({ message: 'name and batchId are required' });
     }
 
+    if (!isValidObjectId(batchId)) {
+      return res.status(400).json({ message: 'Invalid batchId' });
+    }
+
     const batch = await Batch.findById(batchId);
     if (!batch) {
-      return res.status(400).json({ message: 'Invalid batchId' });
+      return res.status(400).json({ message: 'Batch not found' });
     }
 
     const normalizedName = String(name).trim().toUpperCase();
@@ -23,7 +48,7 @@ export const createSection = async (req, res) => {
 
     if (existing) {
       return res
-        .status(400)
+        .status(409)
         .json({ message: 'Section already exists in this batch' });
     }
 
@@ -43,25 +68,28 @@ export const createSection = async (req, res) => {
   }
 };
 
+/* ============================
+   GET ALL SECTIONS
+============================ */
 export const getAllSections = async (req, res) => {
   try {
     const { batchId, isActive } = req.query;
+
     const filter = {};
 
-    if (batchId) filter.batchId = batchId;
+    if (batchId) {
+      if (!isValidObjectId(batchId)) {
+        return res.status(400).json({ message: 'Invalid batchId' });
+      }
+      filter.batchId = batchId;
+    }
+
     if (isActive !== undefined) {
       filter.isActive = String(isActive).toLowerCase() === 'true';
     }
 
     const sections = await Section.find(filter)
-      .populate({
-        path: 'batchId',
-        select: 'name admissionYear graduationYear departmentId',
-        populate: {
-          path: 'departmentId',
-          select: 'name shortName'
-        }
-      })
+      .populate(batchPopulateConfig)
       .sort({ name: 1 });
 
     return res.json(sections);
@@ -70,17 +98,18 @@ export const getAllSections = async (req, res) => {
   }
 };
 
+/* ============================
+   GET SECTION BY ID
+============================ */
 export const getSectionById = async (req, res) => {
   try {
     const { id } = req.params;
-    const section = await Section.findById(id).populate({
-      path: 'batchId',
-      select: 'name admissionYear graduationYear departmentId',
-      populate: {
-        path: 'departmentId',
-        select: 'name shortName'
-      }
-    });
+
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid section id' });
+    }
+
+    const section = await Section.findById(id).populate(batchPopulateConfig);
 
     if (!section) {
       return res.status(404).json({ message: 'Section not found' });
@@ -92,15 +121,26 @@ export const getSectionById = async (req, res) => {
   }
 };
 
+/* ============================
+   UPDATE SECTION
+============================ */
 export const updateSection = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = { ...req.body };
 
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid section id' });
+    }
+
     if (updates.batchId) {
+      if (!isValidObjectId(updates.batchId)) {
+        return res.status(400).json({ message: 'Invalid batchId' });
+      }
+
       const batch = await Batch.findById(updates.batchId);
       if (!batch) {
-        return res.status(400).json({ message: 'Invalid batchId' });
+        return res.status(400).json({ message: 'Batch not found' });
       }
     }
 
@@ -110,6 +150,7 @@ export const updateSection = async (req, res) => {
 
     if (updates.name || updates.batchId) {
       const current = await Section.findById(id);
+
       if (!current) {
         return res.status(404).json({ message: 'Section not found' });
       }
@@ -125,7 +166,7 @@ export const updateSection = async (req, res) => {
 
       if (duplicate) {
         return res
-          .status(400)
+          .status(409)
           .json({ message: 'Section already exists in this batch' });
       }
     }
@@ -133,7 +174,7 @@ export const updateSection = async (req, res) => {
     const section = await Section.findByIdAndUpdate(id, updates, {
       new: true,
       runValidators: true
-    });
+    }).populate(batchPopulateConfig);
 
     if (!section) {
       return res.status(404).json({ message: 'Section not found' });
@@ -148,9 +189,17 @@ export const updateSection = async (req, res) => {
   }
 };
 
+/* ============================
+   DELETE SECTION
+============================ */
 export const deleteSection = async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid section id' });
+    }
+
     const section = await Section.findByIdAndDelete(id);
 
     if (!section) {

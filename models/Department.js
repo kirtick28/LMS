@@ -41,8 +41,6 @@ const departmentSchema = new mongoose.Schema(
 );
 
 /* ---------------- INDEXES ---------------- */
-departmentSchema.index({ code: 1 });
-departmentSchema.index({ isActive: 1 });
 
 /* ---------------- MIDDLEWARE ---------------- */
 departmentSchema.pre('validate', function () {

@@ -23,6 +23,13 @@ const studentSchema = new mongoose.Schema(
       index: true
     },
 
+    sectionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Section',
+      required: true,
+      index: true
+    },
+
     firstName: {
       type: String,
       required: true,
@@ -40,7 +47,8 @@ const studentSchema = new mongoose.Schema(
       required: true,
       unique: true,
       uppercase: true,
-      trim: true
+      trim: true,
+      index: true
     },
 
     rollNumber: {
@@ -50,19 +58,11 @@ const studentSchema = new mongoose.Schema(
 
     gender: {
       type: String,
-      enum: ['Male', 'Female', 'Other'],
-      required: false
+      enum: ['Male', 'Female', 'Other']
     },
 
     dateOfBirth: {
-      type: Date,
-      required: false
-    },
-
-    sectionId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Section',
-      index: true
+      type: Date
     },
 
     semesterNumber: {
@@ -70,18 +70,6 @@ const studentSchema = new mongoose.Schema(
       min: 1,
       max: 12,
       default: 1,
-      index: true
-    },
-
-    academicYearLabel: {
-      type: String,
-      trim: true,
-      index: true
-    },
-
-    isActive: {
-      type: Boolean,
-      default: true,
       index: true
     },
 
@@ -98,28 +86,11 @@ const studentSchema = new mongoose.Schema(
       index: true
     },
 
-    academicHistory: [
-      {
-        academicYearId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'AcademicYear',
-          required: true
-        },
-        semesterNumber: {
-          type: Number,
-          required: true
-        },
-        sectionId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'Section',
-          required: true
-        },
-        isCurrent: {
-          type: Boolean,
-          default: false // Set to true when adding the active semester
-        }
-      }
-    ]
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true
+    }
   },
   { timestamps: true }
 );
@@ -129,29 +100,13 @@ studentSchema.index({ batchId: 1, academicStatus: 1 });
 studentSchema.index({ departmentId: 1, academicStatus: 1 });
 studentSchema.index({ sectionId: 1, semesterNumber: 1, isActive: 1 });
 
-studentSchema.index({
-  'academicHistory.sectionId': 1,
-  'academicHistory.isCurrent': 1
-});
-
 /* ---------------- VIRTUALS ---------------- */
 studentSchema.virtual('fullName').get(function () {
   return `${this.firstName} ${this.lastName}`;
 });
 
-// A helpful virtual to instantly grab the student's current enrollment record
-studentSchema.virtual('currentEnrollment').get(function () {
-  return this.academicHistory.find((history) => history.isCurrent === true);
-});
-
+/* ---------------- MIDDLEWARE ---------------- */
 studentSchema.pre('validate', function () {
-  const current = this.academicHistory.find((history) => history.isCurrent);
-
-  if (current) {
-    this.sectionId = this.sectionId || current.sectionId;
-    this.semesterNumber = this.semesterNumber || current.semesterNumber;
-  }
-
   if (this.academicStatus) {
     this.isActive = !['DISCONTINUED', 'DROPPED', 'GRADUATED'].includes(
       this.academicStatus

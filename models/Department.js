@@ -9,17 +9,13 @@ const departmentSchema = new mongoose.Schema(
       unique: true
     },
 
-    shortName: {
-      type: String,
-      trim: true
-    },
-
     code: {
       type: String,
       required: true,
       unique: true,
       uppercase: true,
-      trim: true
+      trim: true,
+      index: true
     },
 
     program: {
@@ -44,10 +40,14 @@ const departmentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+/* ---------------- INDEXES ---------------- */
+departmentSchema.index({ code: 1 });
+departmentSchema.index({ isActive: 1 });
+
+/* ---------------- MIDDLEWARE ---------------- */
 departmentSchema.pre('validate', function () {
-  if (!this.code) {
-    const source = this.shortName || this.name || '';
-    this.code = String(source)
+  if (this.code) {
+    this.code = String(this.code)
       .toUpperCase()
       .replace(/[^A-Z0-9]/g, '')
       .slice(0, 10);

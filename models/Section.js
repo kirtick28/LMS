@@ -31,9 +31,11 @@ const sectionSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+/* ---------------- INDEXES ---------------- */
 sectionSchema.index({ name: 1, batchId: 1 }, { unique: true });
 sectionSchema.index({ batchId: 1, isActive: 1 });
 
+/* ---------------- MIDDLEWARE ---------------- */
 sectionSchema.pre('validate', function () {
   if (this.name) {
     this.name = String(this.name).trim().toUpperCase();

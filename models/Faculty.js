@@ -33,12 +33,6 @@ const facultySchema = new mongoose.Schema(
       trim: true
     },
 
-    mobileNumber: {
-      type: String,
-      trim: true,
-      match: /^[0-9]{10}$/
-    },
-
     phone: {
       type: String,
       trim: true,
@@ -51,15 +45,7 @@ const facultySchema = new mongoose.Schema(
       unique: true,
       uppercase: true,
       trim: true,
-      sparse: true
-    },
-
-    facultyCode: {
-      type: String,
-      unique: true,
-      uppercase: true,
-      trim: true,
-      sparse: true
+      index: true
     },
 
     profileImage: {
@@ -71,15 +57,15 @@ const facultySchema = new mongoose.Schema(
       type: String,
       enum: [
         'Professor',
-        'Assistant Professor',
         'Associate Professor',
+        'Assistant Professor',
         'HOD',
         'Dean',
         'Faculty',
         'Professor of Practice',
         'Lab Technician',
-        'Department Secretary',
-        'Senior Lab Technician'
+        'Senior Lab Technician',
+        'Department Secretary'
       ],
       required: true
     },
@@ -94,7 +80,9 @@ const facultySchema = new mongoose.Schema(
       trim: true
     },
 
-    joiningDate: Date,
+    joiningDate: {
+      type: Date
+    },
 
     reportingManager: {
       type: mongoose.Schema.Types.ObjectId,
@@ -137,23 +125,8 @@ facultySchema.virtual('fullName').get(function () {
   return `${this.firstName} ${this.lastName}`;
 });
 
+/* ---------------- MIDDLEWARE ---------------- */
 facultySchema.pre('validate', function () {
-  if (!this.facultyCode && this.employeeId) {
-    this.facultyCode = this.employeeId;
-  }
-
-  if (!this.employeeId && this.facultyCode) {
-    this.employeeId = this.facultyCode;
-  }
-
-  if (!this.phone && this.mobileNumber) {
-    this.phone = this.mobileNumber;
-  }
-
-  if (!this.mobileNumber && this.phone) {
-    this.mobileNumber = this.phone;
-  }
-
   if (this.employmentStatus) {
     this.isActive = !['RESIGNED', 'RETIRED'].includes(this.employmentStatus);
   }

@@ -2,13 +2,6 @@ import mongoose from 'mongoose';
 
 const batchSchema = new mongoose.Schema(
   {
-    name: {
-      type: String,
-      required: true,
-      unique: true,
-      trim: true
-    },
-
     departmentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Department',
@@ -19,33 +12,30 @@ const batchSchema = new mongoose.Schema(
     regulationId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Regulation',
-      default: null,
+      required: true,
       index: true
     },
 
     startYear: {
       type: Number,
-      index: true
-    },
-
-    endYear: {
-      type: Number
-    },
-
-    admissionYear: {
-      type: Number,
       required: true,
       index: true
     },
 
-    graduationYear: {
+    endYear: {
       type: Number,
       required: true
     },
 
     programDuration: {
       type: Number,
-      default: 4
+      default: 4,
+      min: 1
+    },
+
+    name: {
+      type: String,
+      trim: true
     },
 
     isActive: {
@@ -57,38 +47,14 @@ const batchSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+/* ---------------- INDEXES ---------------- */
 batchSchema.index(
   { departmentId: 1, startYear: 1, endYear: 1 },
-  { unique: true, sparse: true }
-);
-
-batchSchema.index(
-  { departmentId: 1, admissionYear: 1, graduationYear: 1 },
   { unique: true }
 );
 
-/* ---------------- VALIDATION ---------------- */
+/* ---------------- MIDDLEWARE ---------------- */
 batchSchema.pre('validate', function () {
-  if (!this.startYear && this.admissionYear) {
-    this.startYear = this.admissionYear;
-  }
-
-  if (!this.endYear && this.graduationYear) {
-    this.endYear = this.graduationYear;
-  }
-
-  if (!this.admissionYear && this.startYear) {
-    this.admissionYear = this.startYear;
-  }
-
-  if (!this.graduationYear && this.endYear) {
-    this.graduationYear = this.endYear;
-  }
-
-  if (!this.graduationYear && this.admissionYear && this.programDuration) {
-    this.graduationYear = this.admissionYear + this.programDuration;
-  }
-
   if (!this.endYear && this.startYear && this.programDuration) {
     this.endYear = this.startYear + this.programDuration;
   }
@@ -97,8 +63,8 @@ batchSchema.pre('validate', function () {
     this.name = `${this.startYear}-${this.endYear}`;
   }
 
-  if (this.admissionYear >= this.graduationYear) {
-    throw new Error('graduationYear must be greater than admissionYear');
+  if (this.startYear >= this.endYear) {
+    throw new Error('endYear must be greater than startYear');
   }
 });
 

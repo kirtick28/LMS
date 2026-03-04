@@ -27,57 +27,47 @@ const scheduleEntrySchema = new mongoose.Schema(
     endTime: {
       type: String,
       required: true
-    },
-    slots: [slotSchema]
+    }
+  },
   { _id: false }
-  { _id: true }
 );
 
 const timetableSchema = new mongoose.Schema(
+  {
     sectionId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Section',
       required: true,
       index: true
     },
-    semester: {
+
     semesterNumber: {
-      required: true
+      type: Number,
       required: true,
       min: 1,
       index: true
-    section: {
-      type: String,
+    },
+
     schedule: {
       type: [scheduleEntrySchema],
       default: []
     },
 
-    departmentId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Department',
-      default: null,
+    isActive: {
+      type: Boolean,
+      default: true,
       index: true
-    },
-
-    batchId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Batch',
-      default: null,
-      index: true
-    },
-
-    academicYearLabel: {
-    },
-      trim: true,
-      default: ''
     }
+  },
+  { timestamps: true }
+);
 
-export default mongoose.model('Timetable', timetableSchema);
-
-
+/* ---------------- INDEXES ---------------- */
 timetableSchema.index({ sectionId: 1, semesterNumber: 1 }, { unique: true });
+
 timetableSchema.index(
   { sectionId: 1, 'schedule.dayOfWeek': 1, 'schedule.periodNumber': 1 },
   { sparse: true }
 );
+
+export default mongoose.model('Timetable', timetableSchema);

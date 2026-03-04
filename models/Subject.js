@@ -13,7 +13,8 @@ const subjectSchema = new mongoose.Schema(
       required: true,
       unique: true,
       uppercase: true,
-      trim: true
+      trim: true,
+      index: true
     },
 
     credits: {
@@ -35,25 +36,6 @@ const subjectSchema = new mongoose.Schema(
       index: true
     },
 
-    regulationId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Regulation',
-      default: null,
-      index: true
-    },
-
-    regulation: {
-      type: String,
-      trim: true,
-      index: true
-    },
-
-    type: {
-      type: String,
-      enum: ['T', 'P', 'TP', 'TPJ', 'PJ', 'I'],
-      default: undefined
-    },
-
     isActive: {
       type: Boolean,
       default: true,
@@ -63,17 +45,8 @@ const subjectSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+/* ---------------- INDEXES ---------------- */
 subjectSchema.index({ departmentId: 1, isActive: 1 });
-subjectSchema.index({ departmentId: 1, regulationId: 1, isActive: 1 });
-
-subjectSchema.pre('validate', function () {
-  if (!this.type && this.courseType) {
-    this.type = this.courseType;
-  }
-
-  if (!this.courseType && this.type && this.type !== 'TPJ') {
-    this.courseType = this.type;
-  }
-});
+subjectSchema.index({ departmentId: 1, code: 1 }, { unique: true });
 
 export default mongoose.model('Subject', subjectSchema);

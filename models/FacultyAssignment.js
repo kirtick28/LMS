@@ -27,27 +27,7 @@ const facultyAssignmentSchema = new mongoose.Schema(
       type: Number,
       required: true,
       min: 1,
-      index: true
-    },
-
-    departmentId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Department',
-      default: null,
-      index: true
-    },
-
-    batchId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Batch',
-      default: null,
-      index: true
-    },
-
-    curriculumId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Curriculum',
-      default: null,
+      max: 12,
       index: true
     },
 
@@ -60,13 +40,16 @@ const facultyAssignmentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+/* ---------------- INDEXES ---------------- */
 facultyAssignmentSchema.index(
   { sectionId: 1, subjectId: 1, semesterNumber: 1 },
   { unique: true }
 );
 
-facultyAssignmentSchema.index({ facultyId: 1, isActive: 1 });
+facultyAssignmentSchema.index({ facultyId: 1, semesterNumber: 1 });
+facultyAssignmentSchema.index({ sectionId: 1, semesterNumber: 1 });
 
+/* ---------------- MIDDLEWARE ---------------- */
 facultyAssignmentSchema.pre('validate', function () {
   if (this.semesterNumber < 1) {
     throw new Error('semesterNumber must be >= 1');

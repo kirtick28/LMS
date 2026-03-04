@@ -42,11 +42,10 @@ const batchSchema = new mongoose.Schema(
 );
 
 /* ---------------- VALIDATION ---------------- */
-batchSchema.pre('validate', function (next) {
+batchSchema.pre('validate', function () {
   if (this.admissionYear >= this.graduationYear) {
-    return next(new Error('graduationYear must be greater than admissionYear'));
+    throw new Error('graduationYear must be greater than admissionYear');
   }
-  next();
 });
 
 export default mongoose.model('Batch', batchSchema);

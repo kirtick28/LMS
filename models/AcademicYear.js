@@ -22,8 +22,7 @@ const academicYearSchema = new mongoose.Schema(
 
     isCurrent: {
       type: Boolean,
-      default: false,
-      index: true
+      default: false
     },
 
     isActive: {
@@ -36,15 +35,14 @@ const academicYearSchema = new mongoose.Schema(
 );
 
 /* ---------------- VALIDATION ---------------- */
-academicYearSchema.pre('validate', function (next) {
+academicYearSchema.pre('validate', function () {
   if (this.startYear >= this.endYear) {
-    return next(new Error('endYear must be greater than startYear'));
+    throw new Error('endYear must be greater than startYear');
   }
-  next();
 });
 
 /* ---------------- ENSURE SINGLE CURRENT YEAR ---------------- */
-academicYearSchema.pre('save', async function (next) {
+academicYearSchema.pre('save', async function () {
   if (this.isCurrent) {
     await mongoose
       .model('AcademicYear')
@@ -53,7 +51,6 @@ academicYearSchema.pre('save', async function (next) {
         { isCurrent: false }
       );
   }
-  next();
 });
 
 /* ---------------- UNIQUE CURRENT INDEX ---------------- */

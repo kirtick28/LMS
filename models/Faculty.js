@@ -65,8 +65,7 @@ const facultySchema = new mongoose.Schema(
         'Professor of Practice',
         'Lab Technician',
         'Department Secretary',
-        'Senior Lab Technician',
-        'ADMIN'
+        'Senior Lab Technician'
       ],
       required: true
     },

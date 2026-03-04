@@ -65,7 +65,10 @@ const router = express.Router();
  *   post:
  *     summary: Register a new user
  *     tags: [Auth]
- *     description: Creates a new user account and returns a JWT token.
+ *     description: |
+ *       Creates a new user account and returns a JWT token.
+ *
+ *       **Access:** Public (No authentication required)
  *     requestBody:
  *       required: true
  *       content:
@@ -111,7 +114,10 @@ router.post('/register', registerUser);
  *   post:
  *     summary: Login user
  *     tags: [Auth]
- *     description: Authenticates a user and returns a JWT token.
+ *     description: |
+ *       Authenticates a user and returns a JWT token.
+ *
+ *       **Access:** Public (No authentication required)
  *     requestBody:
  *       required: true
  *       content:
@@ -153,6 +159,8 @@ router.post('/login', loginUser);
  *     description: |
  *       Sends a password reset link to the user's email.
  *
+ *       **Access:** Public (No authentication required)
+ *
  *       **Security Note:**
  *       This endpoint always returns a success response even if the email does not exist,
  *       to prevent user enumeration attacks.
@@ -186,7 +194,10 @@ router.post('/forgot-password', forgotPassword);
  *   post:
  *     summary: Reset password
  *     tags: [Auth]
- *     description: Resets the user's password using the reset token sent via email.
+ *     description: |
+ *       Resets the user's password using the reset token sent via email.
+ *
+ *       **Access:** Public (Requires valid reset token)
  *     requestBody:
  *       required: true
  *       content:
@@ -226,7 +237,7 @@ router.post('/reset-password', resetPassword);
  *     description: |
  *       Allows an authenticated user to change their password.
  *
- *       **Access Roles:** STUDENT, FACULTY, ADMIN
+ *       **Access:** Authenticated users with role STUDENT, FACULTY, or ADMIN
  *     security:
  *       - bearerAuth: []
  *     requestBody:

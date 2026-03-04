@@ -7,9 +7,9 @@ import path from 'path';
 // Environment variables Configuration
 dotenv.config();
 
-// Databse Connection
-import connectDB from './config/DB.js';
-connectDB();
+// Imports
+import authRoutes from './routes/auth.routes.js';
+import globalErrorHandler from './middleware/error.middleware.js';
 
 const app = express();
 
@@ -23,6 +23,9 @@ app.use(express.json());
 app.use(morgan('dev'));
 
 // Routes
+app.use('/api/auth', authRoutes);
+
+app.use(globalErrorHandler);
 
 // Backend Check
 app.get('/', (req, res) => {

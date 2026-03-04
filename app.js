@@ -12,6 +12,7 @@ dotenv.config();
 // Imports
 import authRoutes from './routes/auth.routes.js';
 import studentRoutes from './routes/student.routes.js';
+import facultyRoutes from './routes/faculty.routes.js';
 import globalErrorHandler from './middleware/error.middleware.js';
 
 const app = express();
@@ -31,6 +32,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/students', studentRoutes);
+app.use('/api/faculty', facultyRoutes);
 
 app.use(globalErrorHandler);
 

@@ -150,7 +150,11 @@ router.post('/reset-password', resetPassword);
  *   post:
  *     summary: Change password
  *     tags: [Auth]
- *     description: Allows an authenticated user to change their password.
+ *     description: |
+ *       Allows an authenticated user to change their password.
+ *
+ *       **Access Roles: STUDENT, FACULTY, ADMIN**
+ *
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -173,7 +177,7 @@ router.post('/reset-password', resetPassword);
  *       200:
  *         description: Password changed successfully
  *       400:
- *         description: Current password incorrect
+ *         description: Current PasswordIncorrect
  *       401:
  *         description: Unauthorized
  */

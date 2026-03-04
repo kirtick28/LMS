@@ -17,7 +17,7 @@ const app = express();
 
 // Serve Static Folder
 app.use('/images', express.static(path.join(process.cwd(), 'images')));
-app.use('/pdf_assets', express.static(path.join(process.cwd(), 'pdf_assets')));
+app.use('/pdf_assets', express.static(path.join(process.cwd(), 'pdf')));
 
 // Global Middlewares
 app.use(cors());

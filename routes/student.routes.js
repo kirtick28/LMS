@@ -3,6 +3,7 @@ import multer from 'multer';
 import {
   addStudent,
   updateStudent,
+  updateStudentSemester,
   deleteStudent,
   getAllStudents,
   // getStudentsFiltered,
@@ -248,6 +249,58 @@ router.put('/:id', protect, authorize('ADMIN'), updateStudent);
 
 /**
  * @swagger
+ * /api/students/{id}/semester:
+ *   patch:
+ *     summary: Update student semester and academic year
+ *     tags: [Students]
+ *     description: |
+ *       Updates a student's semester number and automatically recalculates academic year based on batch start year.
+ *
+ *       **Access:** Authenticated users with role ADMIN only
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - semesterNumber
+ *             properties:
+ *               semesterNumber:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 12
+ *     responses:
+ *       200:
+ *         description: Student semester updated successfully
+ *       400:
+ *         description: Invalid input
+ *       401:
+ *         description: Unauthorized (JWT missing or invalid)
+ *       403:
+ *         description: Access denied (requires ADMIN)
+ *       404:
+ *         description: Student not found
+ *       500:
+ *         description: Server error
+ */
+router.patch(
+  '/:id/semester',
+  protect,
+  authorize('ADMIN'),
+  updateStudentSemester
+);
+
+/**
+ * @swagger
  * /api/students/{id}:
  *   delete:
  *     summary: Delete student and linked user
@@ -302,6 +355,18 @@ router.delete('/:id', protect, authorize('ADMIN'), deleteStudent);
  *           type: string
  *       - in: query
  *         name: sectionId
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: academicYearStartYear
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: academicYearEndYear
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: academicYearName
  *         schema:
  *           type: string
  *     responses:

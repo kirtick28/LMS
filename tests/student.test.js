@@ -89,6 +89,9 @@ describe('Student API', () => {
       expect(batch.endYear).toBe(2028);
       expect(regulation.startYear).toBe(2024);
       expect(department.code).toBe('CSE');
+      expect(student.academicYear.startYear).toBe(2024);
+      expect(student.academicYear.endYear).toBe(2025);
+      expect(student.academicYear.name).toBe('24 - 25');
     });
 
     it('returns 400 for duplicate registerNumber', async () => {
@@ -161,6 +164,75 @@ describe('Student API', () => {
       expect(res.statusCode).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
       expect(res.body.length).toBe(1);
+    });
+
+    it('updates semester and recalculates academic year', async () => {
+      const token = await getTokenByRole('ADMIN', 'admin-student-semester');
+
+      const created = await request(app)
+        .post('/api/students')
+        .set('Authorization', `Bearer ${token}`)
+        .send(
+          createStudentPayload({
+            email: 'semester-change@example.com',
+            registerNumber: 'REG4101',
+            startYear: 2023,
+            endYear: 2027,
+            semesterNumber: 2
+          })
+        );
+
+      expect(created.statusCode).toBe(201);
+
+      const updateRes = await request(app)
+        .patch(`/api/students/${created.body.student._id}/semester`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ semesterNumber: 5 });
+
+      expect(updateRes.statusCode).toBe(200);
+      expect(updateRes.body.student.semesterNumber).toBe(5);
+      expect(updateRes.body.student.academicYear.startYear).toBe(2025);
+      expect(updateRes.body.student.academicYear.endYear).toBe(2026);
+      expect(updateRes.body.student.academicYear.name).toBe('25 - 26');
+    });
+
+    it('filters GET /api/students by academic year name', async () => {
+      const token = await getTokenByRole('ADMIN', 'admin-student-ay-filter');
+
+      await request(app)
+        .post('/api/students')
+        .set('Authorization', `Bearer ${token}`)
+        .send(
+          createStudentPayload({
+            email: 'ay-filter-1@example.com',
+            registerNumber: 'REG4201',
+            startYear: 2023,
+            endYear: 2027,
+            semesterNumber: 5
+          })
+        );
+
+      await request(app)
+        .post('/api/students')
+        .set('Authorization', `Bearer ${token}`)
+        .send(
+          createStudentPayload({
+            email: 'ay-filter-2@example.com',
+            registerNumber: 'REG4202',
+            startYear: 2023,
+            endYear: 2027,
+            semesterNumber: 1
+          })
+        );
+
+      const res = await request(app)
+        .get('/api/students?academicYearName=25%20-%2026')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.statusCode).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body.length).toBe(1);
+      expect(res.body[0].academicYear.name).toBe('25 - 26');
     });
 
     it('returns 400 when update gets invalid student id', async () => {

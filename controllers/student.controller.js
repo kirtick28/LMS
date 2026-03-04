@@ -29,6 +29,36 @@ const normalizeCode = (value) => {
     .slice(0, 10);
 };
 
+const toTwoDigitYear = (year) => String(year).slice(-2);
+
+const buildAcademicYear = (batch, semesterNumber) => {
+  const sem = Number(semesterNumber);
+  const batchStartYear = Number(batch?.startYear);
+
+  if (!sem || sem < 1 || !batchStartYear) {
+    return null;
+  }
+
+  const yearOffset = Math.floor((sem - 1) / 2);
+  const startYear = batchStartYear + yearOffset;
+  const endYear = startYear + 1;
+
+  return {
+    startYear,
+    endYear,
+    name: `${toTwoDigitYear(startYear)} - ${toTwoDigitYear(endYear)}`
+  };
+};
+
+const resolveAcademicYearForStudent = async (batchId, semesterNumber) => {
+  if (!batchId) return null;
+
+  const batch = await Batch.findById(batchId).select('startYear endYear');
+  if (!batch) return null;
+
+  return buildAcademicYear(batch, semesterNumber);
+};
+
 const getYearFromSemester = (semester) => {
   const sem = Number(semester);
   if (!sem || sem < 1) return null;
@@ -238,6 +268,11 @@ export const addStudent = async (req, res) => {
     }
 
     const context = await resolveStudentContext(req.body, true);
+    const normalizedSemesterNumber = Number(semesterNumber) || 1;
+    const academicYear = await resolveAcademicYearForStudent(
+      context.batchId,
+      normalizedSemesterNumber
+    );
 
     const user = await User.create({
       email: normalizedEmail,
@@ -257,7 +292,8 @@ export const addStudent = async (req, res) => {
       lastName,
       registerNumber: normalizedRegisterNumber,
       rollNumber,
-      semesterNumber: Number(semesterNumber) || 1
+      semesterNumber: normalizedSemesterNumber,
+      academicYear
     });
 
     user.profileRef = student._id;
@@ -341,6 +377,21 @@ export const updateStudent = async (req, res) => {
       }
     });
 
+    if (
+      req.body.semesterNumber !== undefined ||
+      req.body.batchId !== undefined ||
+      !student.academicYear?.startYear
+    ) {
+      const academicYear = await resolveAcademicYearForStudent(
+        student.batchId,
+        student.semesterNumber
+      );
+
+      if (academicYear) {
+        student.academicYear = academicYear;
+      }
+    }
+
     await student.save();
 
     if (user) {
@@ -407,6 +458,20 @@ export const getAllStudents = async (req, res) => {
       filter.sectionId = toObjectId(req.query.sectionId, 'sectionId');
     }
 
+    if (req.query.academicYearStartYear) {
+      filter['academicYear.startYear'] = Number(
+        req.query.academicYearStartYear
+      );
+    }
+
+    if (req.query.academicYearEndYear) {
+      filter['academicYear.endYear'] = Number(req.query.academicYearEndYear);
+    }
+
+    if (req.query.academicYearName) {
+      filter['academicYear.name'] = String(req.query.academicYearName).trim();
+    }
+
     const students = await Student.find(filter)
       .populate('userId', 'email gender dateOfBirth isActive')
       .populate('departmentId', 'name code program')
@@ -414,6 +479,59 @@ export const getAllStudents = async (req, res) => {
       .populate('sectionId', 'name capacity isActive');
 
     return res.json(students);
+  } catch (error) {
+    return handleBadRequest(res, error);
+  }
+};
+
+/* ======================================================
+   UPDATE STUDENT SEMESTER
+====================================================== */
+
+export const updateStudentSemester = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { semesterNumber } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid student id' });
+    }
+
+    const normalizedSemesterNumber = Number(semesterNumber);
+
+    if (
+      !Number.isInteger(normalizedSemesterNumber) ||
+      normalizedSemesterNumber < 1 ||
+      normalizedSemesterNumber > 12
+    ) {
+      return res.status(400).json({ message: 'Invalid semesterNumber' });
+    }
+
+    const student = await Student.findById(id);
+
+    if (!student) {
+      return res.status(404).json({ message: 'Student not found' });
+    }
+
+    const academicYear = await resolveAcademicYearForStudent(
+      student.batchId,
+      normalizedSemesterNumber
+    );
+
+    if (!academicYear) {
+      return res
+        .status(400)
+        .json({ message: 'Unable to resolve academic year' });
+    }
+
+    student.semesterNumber = normalizedSemesterNumber;
+    student.academicYear = academicYear;
+    await student.save();
+
+    return res.json({
+      message: 'Student semester updated successfully',
+      student
+    });
   } catch (error) {
     return handleBadRequest(res, error);
   }
@@ -470,6 +588,11 @@ export const uploadMultipleStudents = async (req, res) => {
         }
 
         const context = await resolveStudentContext(row, true);
+        const normalizedSemesterNumber = Number(semesterNumber) || 1;
+        const academicYear = await resolveAcademicYearForStudent(
+          context.batchId,
+          normalizedSemesterNumber
+        );
 
         const user = await User.create({
           email: normalizedEmail,
@@ -486,7 +609,8 @@ export const uploadMultipleStudents = async (req, res) => {
           firstName,
           lastName,
           registerNumber: normalizedRegister,
-          semesterNumber: Number(semesterNumber) || 1
+          semesterNumber: normalizedSemesterNumber,
+          academicYear
         });
 
         user.profileRef = student._id;

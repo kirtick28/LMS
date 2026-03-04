@@ -73,6 +73,22 @@ const studentSchema = new mongoose.Schema(
       index: true
     },
 
+    academicYear: {
+      startYear: {
+        type: Number,
+        index: true
+      },
+      endYear: {
+        type: Number,
+        index: true
+      },
+      name: {
+        type: String,
+        trim: true,
+        index: true
+      }
+    },
+
     entryType: {
       type: String,
       enum: ['REGULAR', 'LATERAL'],
@@ -99,6 +115,11 @@ const studentSchema = new mongoose.Schema(
 studentSchema.index({ batchId: 1, academicStatus: 1 });
 studentSchema.index({ departmentId: 1, academicStatus: 1 });
 studentSchema.index({ sectionId: 1, semesterNumber: 1, isActive: 1 });
+studentSchema.index({
+  batchId: 1,
+  semesterNumber: 1,
+  'academicYear.startYear': 1
+});
 
 /* ---------------- VIRTUALS ---------------- */
 studentSchema.virtual('fullName').get(function () {

@@ -5,9 +5,6 @@ import xlsx from 'xlsx';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
-/* ============================
-   CREATE SUBJECT
-============================ */
 export const createSubject = async (req, res) => {
   try {
     const { name, code, credits, courseType, departmentId, isActive } =
@@ -17,7 +14,7 @@ export const createSubject = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'name, code and departmentId are required',
-        data: null
+        data: {}
       });
     }
 
@@ -25,7 +22,7 @@ export const createSubject = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Invalid departmentId',
-        data: null
+        data: {}
       });
     }
 
@@ -34,7 +31,7 @@ export const createSubject = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Department not found',
-        data: null
+        data: {}
       });
     }
 
@@ -50,7 +47,7 @@ export const createSubject = async (req, res) => {
         success: false,
         message:
           'Subject with same code or same name in department already exists',
-        data: null
+        data: {}
       });
     }
 
@@ -80,21 +77,18 @@ export const createSubject = async (req, res) => {
       return res.status(409).json({
         success: false,
         message: 'Subject code already exists in this department',
-        data: null
+        data: {}
       });
     }
 
     return res.status(500).json({
       success: false,
       message: error.message,
-      data: null
+      data: {}
     });
   }
 };
 
-/* ============================
-   GET ALL SUBJECTS
-============================ */
 export const getAllSubjects = async (req, res) => {
   try {
     const { departmentId, courseType, isActive } = req.query;
@@ -106,7 +100,7 @@ export const getAllSubjects = async (req, res) => {
         return res.status(400).json({
           success: false,
           message: 'Invalid departmentId',
-          data: null
+          data: {}
         });
       }
       filter.departmentId = departmentId;
@@ -126,6 +120,7 @@ export const getAllSubjects = async (req, res) => {
 
     return res.json({
       success: true,
+      message: 'Subjects retrieved successfully',
       data: {
         subjects
       }
@@ -134,14 +129,11 @@ export const getAllSubjects = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error.message,
-      data: null
+      data: {}
     });
   }
 };
 
-/* ============================
-   GET SUBJECT BY ID
-============================ */
 export const getSubjectById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -150,7 +142,7 @@ export const getSubjectById = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Invalid subject id',
-        data: null
+        data: {}
       });
     }
 
@@ -163,12 +155,13 @@ export const getSubjectById = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Subject not found',
-        data: null
+        data: {}
       });
     }
 
     return res.json({
       success: true,
+      message: 'Subject retrieved successfully',
       data: {
         subject
       }
@@ -177,14 +170,11 @@ export const getSubjectById = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error.message,
-      data: null
+      data: {}
     });
   }
 };
 
-/* ============================
-   UPDATE SUBJECT
-============================ */
 export const updateSubject = async (req, res) => {
   try {
     const { id } = req.params;
@@ -194,7 +184,7 @@ export const updateSubject = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Invalid subject id',
-        data: null
+        data: {}
       });
     }
 
@@ -203,7 +193,7 @@ export const updateSubject = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Subject not found',
-        data: null
+        data: {}
       });
     }
 
@@ -212,7 +202,7 @@ export const updateSubject = async (req, res) => {
         return res.status(400).json({
           success: false,
           message: 'Invalid departmentId',
-          data: null
+          data: {}
         });
       }
 
@@ -221,7 +211,7 @@ export const updateSubject = async (req, res) => {
         return res.status(400).json({
           success: false,
           message: 'Department not found',
-          data: null
+          data: {}
         });
       }
     }
@@ -251,7 +241,7 @@ export const updateSubject = async (req, res) => {
         success: false,
         message:
           'Subject with same code or same name in department already exists',
-        data: null
+        data: {}
       });
     }
 
@@ -272,21 +262,18 @@ export const updateSubject = async (req, res) => {
       return res.status(409).json({
         success: false,
         message: 'Subject code already exists in this department',
-        data: null
+        data: {}
       });
     }
 
     return res.status(500).json({
       success: false,
       message: error.message,
-      data: null
+      data: {}
     });
   }
 };
 
-/* ============================
-   DELETE SUBJECT
-============================ */
 export const deleteSubject = async (req, res) => {
   try {
     const { id } = req.params;
@@ -295,7 +282,7 @@ export const deleteSubject = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Invalid subject id',
-        data: null
+        data: {}
       });
     }
 
@@ -305,7 +292,7 @@ export const deleteSubject = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Subject not found',
-        data: null
+        data: {}
       });
     }
 
@@ -320,21 +307,18 @@ export const deleteSubject = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error.message,
-      data: null
+      data: {}
     });
   }
 };
 
-/* ============================
-   BULK UPLOAD SUBJECTS
-============================ */
 export const uploadMultipleSubjects = async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({
         success: false,
         message: 'No file uploaded',
-        data: null
+        data: {}
       });
     }
 
@@ -344,7 +328,7 @@ export const uploadMultipleSubjects = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'departmentId is required in params or body',
-        data: null
+        data: {}
       });
     }
 
@@ -352,7 +336,7 @@ export const uploadMultipleSubjects = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Invalid departmentId',
-        data: null
+        data: {}
       });
     }
 
@@ -362,7 +346,7 @@ export const uploadMultipleSubjects = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Department not found',
-        data: null
+        data: {}
       });
     }
 
@@ -431,7 +415,7 @@ export const uploadMultipleSubjects = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error.message,
-      data: null
+      data: {}
     });
   }
 };

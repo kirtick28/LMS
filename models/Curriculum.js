@@ -7,15 +7,12 @@ const curriculumSemesterSchema = new mongoose.Schema(
       required: true,
       min: 1
     },
-    subjects: {
-      type: [
-        {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'Subject'
-        }
-      ],
-      default: []
-    }
+    subjects: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Subject'
+      }
+    ]
   },
   { _id: false }
 );
@@ -28,19 +25,16 @@ const curriculumSchema = new mongoose.Schema(
       required: true,
       index: true
     },
-
     regulationId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Regulation',
       required: true,
       index: true
     },
-
     semesters: {
       type: [curriculumSemesterSchema],
       default: []
     },
-
     isActive: {
       type: Boolean,
       default: true
@@ -50,5 +44,20 @@ const curriculumSchema = new mongoose.Schema(
 );
 
 curriculumSchema.index({ departmentId: 1, regulationId: 1 }, { unique: true });
+
+curriculumSchema.index({
+  departmentId: 1,
+  regulationId: 1,
+  'semesters.semesterNumber': 1
+});
+
+curriculumSchema.pre('validate', function () {
+  const semesters = this.semesters.map((s) => s.semesterNumber);
+  const unique = new Set(semesters);
+
+  if (unique.size !== semesters.length) {
+    throw new Error('Duplicate semesterNumber in curriculum');
+  }
+});
 
 export default mongoose.model('Curriculum', curriculumSchema);

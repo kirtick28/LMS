@@ -42,7 +42,7 @@ const upload = multer({ storage: multer.memoryStorage() });
  *           example: 4
  *         courseType:
  *           type: string
- *           enum: [T, P, TP, PJ, I]
+ *           enum: [T, P, TP, TPJ, PJ, I]
  *           example: T
  *         departmentId:
  *           type: string
@@ -61,7 +61,7 @@ const upload = multer({ storage: multer.memoryStorage() });
  *           type: number
  *         courseType:
  *           type: string
- *           enum: [T, P, TP, PJ, I]
+ *           enum: [T, P, TP, TPJ, PJ, I]
  *         departmentId:
  *           type: string
  *         isActive:
@@ -278,7 +278,7 @@ router.post(
  *         name: courseType
  *         schema:
  *           type: string
- *           enum: [T, P, TP, PJ, I]
+ *           enum: [T, P, TP, TPJ, PJ, I]
  *       - in: query
  *         name: isActive
  *         schema:

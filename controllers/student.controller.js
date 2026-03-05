@@ -2,14 +2,11 @@ import Student from '../models/Student.js';
 import User from '../models/User.js';
 import Department from '../models/Department.js';
 import Batch from '../models/Batch.js';
+import BatchProgram from '../models/BatchProgram.js';
 import Section from '../models/Section.js';
 import Regulation from '../models/Regulation.js';
 import mongoose from 'mongoose';
 import xlsx from 'xlsx';
-
-/* ======================================================
-   UTILS
-====================================================== */
 
 const DEFAULT_SECTION_NAME = 'UNALLOCATED';
 
@@ -39,36 +36,6 @@ const normalizeTotalSemesters = (value) => {
   return Math.min(Math.max(parsed, 1), 8);
 };
 
-const toTwoDigitYear = (year) => String(year).slice(-2);
-
-const buildAcademicYear = (batch, semesterNumber) => {
-  const sem = Number(semesterNumber);
-  const batchStartYear = Number(batch?.startYear);
-
-  if (!sem || sem < 1 || !batchStartYear) {
-    return null;
-  }
-
-  const yearOffset = Math.floor((sem - 1) / 2);
-  const startYear = batchStartYear + yearOffset;
-  const endYear = startYear + 1;
-
-  return {
-    startYear,
-    endYear,
-    name: `${toTwoDigitYear(startYear)} - ${toTwoDigitYear(endYear)}`
-  };
-};
-
-const resolveAcademicYearForStudent = async (batchId, semesterNumber) => {
-  if (!batchId) return null;
-
-  const batch = await Batch.findById(batchId).select('startYear endYear');
-  if (!batch) return null;
-
-  return buildAcademicYear(batch, semesterNumber);
-};
-
 const getYearFromSemester = (semester) => {
   const sem = Number(semester);
   if (!sem || sem < 1) return null;
@@ -76,10 +43,6 @@ const getYearFromSemester = (semester) => {
   if (year < 1 || year > 4) return null;
   return year;
 };
-
-/* ======================================================
-   RESOLVERS
-====================================================== */
 
 const resolveDepartment = async (payload) => {
   if (payload.departmentId) {
@@ -143,7 +106,7 @@ const resolveRegulation = async (payload, startYear) => {
   return regulation;
 };
 
-const resolveBatch = async (payload, department) => {
+const resolveBatch = async (payload) => {
   if (payload.batchId) {
     const batch = await Batch.findById(payload.batchId);
     if (!batch) throw new Error('Invalid batchId');
@@ -160,7 +123,6 @@ const resolveBatch = async (payload, department) => {
   const regulation = await resolveRegulation(payload, startYear);
 
   let batch = await Batch.findOne({
-    departmentId: department._id,
     startYear,
     endYear
   });
@@ -168,17 +130,43 @@ const resolveBatch = async (payload, department) => {
   if (batch) return batch;
 
   batch = await Batch.create({
-    departmentId: department._id,
     startYear,
     endYear,
-    regulationId: regulation._id,
+    name: `${startYear}-${endYear}`,
     programDuration: Number(payload.programDuration) || 4
   });
 
   return batch;
 };
 
-const resolveSection = async (payload, batch, forceUnallocated = false) => {
+const resolveBatchProgram = async (payload, batch, department, regulation) => {
+  if (payload.batchProgramId) {
+    const batchProgram = await BatchProgram.findById(payload.batchProgramId);
+    if (!batchProgram) throw new Error('Invalid batchProgramId');
+    return batchProgram;
+  }
+
+  let batchProgram = await BatchProgram.findOne({
+    batchId: batch._id,
+    departmentId: department._id
+  });
+
+  if (!batchProgram) {
+    batchProgram = await BatchProgram.create({
+      batchId: batch._id,
+      departmentId: department._id,
+      regulationId: regulation._id
+    });
+  }
+
+  return batchProgram;
+};
+
+const resolveSection = async (
+  payload,
+  batchProgram,
+  forceUnallocated = false
+) => {
   if (!forceUnallocated && payload.sectionId) {
     const section = await Section.findById(payload.sectionId);
     if (!section) throw new Error('Invalid sectionId');
@@ -192,13 +180,13 @@ const resolveSection = async (payload, batch, forceUnallocated = false) => {
   const normalized = String(name).trim().toUpperCase();
 
   let section = await Section.findOne({
-    batchId: batch._id,
+    batchProgramId: batchProgram._id,
     name: normalized
   });
 
   if (!section) {
     section = await Section.create({
-      batchId: batch._id,
+      batchProgramId: batchProgram._id,
       name: normalized
     });
   }
@@ -208,13 +196,22 @@ const resolveSection = async (payload, batch, forceUnallocated = false) => {
 
 const resolveStudentContext = async (payload, forceUnallocated = false) => {
   const department = await resolveDepartment(payload);
-  const batch = await resolveBatch(payload, department);
-  const section = await resolveSection(payload, batch, forceUnallocated);
+  const startYear = Number(payload.startYear || payload.admissionYear);
+  const regulation = await resolveRegulation(payload, startYear);
+  const batch = await resolveBatch(payload);
+  const batchProgram = await resolveBatchProgram(
+    payload,
+    batch,
+    department,
+    regulation
+  );
+  const section = await resolveSection(payload, batchProgram, forceUnallocated);
 
   return {
     departmentId: department._id,
     batchId: batch._id,
-    sectionId: section._id
+    sectionId: section._id,
+    batchStartYear: batch.startYear
   };
 };
 
@@ -224,15 +221,15 @@ const handleBadRequest = (res, error) => {
     /require/i.test(error.message) ||
     /already exists/i.test(error.message)
   ) {
-    return res.status(400).json({ message: error.message });
+    return res
+      .status(400)
+      .json({ success: false, message: error.message, data: {} });
   }
 
-  return res.status(500).json({ message: error.message });
+  return res
+    .status(500)
+    .json({ success: false, message: error.message, data: {} });
 };
-
-/* ======================================================
-   CREATE STUDENT
-====================================================== */
 
 export const addStudent = async (req, res) => {
   try {
@@ -245,12 +242,16 @@ export const addStudent = async (req, res) => {
       lastName,
       registerNumber,
       rollNumber,
-      semesterNumber
+      semesterNumber,
+      admissionYear
     } = req.body;
 
     if (!email || !password || !registerNumber || !firstName || !lastName) {
       return res.status(400).json({
-        message: 'email, password, registerNumber, firstName, lastName required'
+        success: false,
+        message:
+          'email, password, registerNumber, firstName, lastName required',
+        data: {}
       });
     }
 
@@ -263,7 +264,9 @@ export const addStudent = async (req, res) => {
 
     if (existingUser) {
       return res.status(400).json({
-        message: 'User already exists with this email'
+        success: false,
+        message: 'User already exists with this email',
+        data: {}
       });
     }
 
@@ -273,24 +276,25 @@ export const addStudent = async (req, res) => {
 
     if (existingStudent) {
       return res.status(400).json({
-        message: 'Register Number already exists'
+        success: false,
+        message: 'Register Number already exists',
+        data: {}
       });
     }
 
     const context = await resolveStudentContext(req.body, true);
     const normalizedSemesterNumber = Number(semesterNumber) || 1;
-    const academicYear = await resolveAcademicYearForStudent(
-      context.batchId,
-      normalizedSemesterNumber
-    );
+    const finalAdmissionYear =
+      Number(admissionYear) ||
+      context.batchStartYear ||
+      new Date().getFullYear();
 
     const user = await User.create({
       email: normalizedEmail,
       password,
       role: 'STUDENT',
       gender,
-      dateOfBirth,
-      profileType: 'Student'
+      dateOfBirth
     });
 
     const student = await Student.create({
@@ -302,38 +306,37 @@ export const addStudent = async (req, res) => {
       lastName,
       registerNumber: normalizedRegisterNumber,
       rollNumber,
+      admissionYear: finalAdmissionYear,
       semesterNumber: normalizedSemesterNumber,
-      academicYear
+      status: 'active'
     });
 
-    user.profileRef = student._id;
-    await user.save();
-
     return res.status(201).json({
+      success: true,
       message: 'Student created successfully',
-      student
+      data: { student }
     });
   } catch (error) {
     return handleBadRequest(res, error);
   }
 };
 
-/* ======================================================
-   UPDATE STUDENT
-====================================================== */
-
 export const updateStudent = async (req, res) => {
   try {
     const { id } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid student id' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'Invalid student id', data: {} });
     }
 
     const student = await Student.findById(id);
 
     if (!student) {
-      return res.status(404).json({ message: 'Student not found' });
+      return res
+        .status(404)
+        .json({ success: false, message: 'Student not found', data: {} });
     }
 
     const user = await User.findById(student.userId);
@@ -349,9 +352,11 @@ export const updateStudent = async (req, res) => {
       });
 
       if (duplicate) {
-        return res
-          .status(400)
-          .json({ message: 'Register Number already exists' });
+        return res.status(400).json({
+          success: false,
+          message: 'Register Number already exists',
+          data: {}
+        });
       }
 
       req.body.registerNumber = normalizedRegisterNumber;
@@ -364,7 +369,9 @@ export const updateStudent = async (req, res) => {
         req.body[field] !== undefined &&
         !mongoose.Types.ObjectId.isValid(req.body[field])
       ) {
-        return res.status(400).json({ message: `Invalid ${field}` });
+        return res
+          .status(400)
+          .json({ success: false, message: `Invalid ${field}`, data: {} });
       }
     }
 
@@ -377,8 +384,9 @@ export const updateStudent = async (req, res) => {
       'batchId',
       'sectionId',
       'semesterNumber',
-      'academicStatus',
-      'entryType'
+      'status',
+      'entryType',
+      'admissionYear'
     ];
 
     studentFields.forEach((field) => {
@@ -386,21 +394,6 @@ export const updateStudent = async (req, res) => {
         student[field] = req.body[field];
       }
     });
-
-    if (
-      req.body.semesterNumber !== undefined ||
-      req.body.batchId !== undefined ||
-      !student.academicYear?.startYear
-    ) {
-      const academicYear = await resolveAcademicYearForStudent(
-        student.batchId,
-        student.semesterNumber
-      );
-
-      if (academicYear) {
-        student.academicYear = academicYear;
-      }
-    }
 
     await student.save();
 
@@ -413,44 +406,45 @@ export const updateStudent = async (req, res) => {
     }
 
     return res.json({
+      success: true,
       message: 'Student updated successfully',
-      student
+      data: { student }
     });
   } catch (error) {
     return handleBadRequest(res, error);
   }
 };
 
-/* ======================================================
-   DELETE STUDENT
-====================================================== */
-
 export const deleteStudent = async (req, res) => {
   try {
     const { id } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid student id' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'Invalid student id', data: {} });
     }
 
     const student = await Student.findById(id);
 
     if (!student) {
-      return res.status(404).json({ message: 'Student not found' });
+      return res
+        .status(404)
+        .json({ success: false, message: 'Student not found', data: {} });
     }
 
     await User.findByIdAndDelete(student.userId);
     await Student.findByIdAndDelete(id);
 
-    return res.json({ message: 'Student deleted successfully' });
+    return res.json({
+      success: true,
+      message: 'Student deleted successfully',
+      data: {}
+    });
   } catch (error) {
     return handleBadRequest(res, error);
   }
 };
-
-/* ======================================================
-   GET ALL STUDENTS
-====================================================== */
 
 export const getAllStudents = async (req, res) => {
   try {
@@ -468,18 +462,12 @@ export const getAllStudents = async (req, res) => {
       filter.sectionId = toObjectId(req.query.sectionId, 'sectionId');
     }
 
-    if (req.query.academicYearStartYear) {
-      filter['academicYear.startYear'] = Number(
-        req.query.academicYearStartYear
-      );
+    if (req.query.status) {
+      filter.status = String(req.query.status).toLowerCase();
     }
 
-    if (req.query.academicYearEndYear) {
-      filter['academicYear.endYear'] = Number(req.query.academicYearEndYear);
-    }
-
-    if (req.query.academicYearName) {
-      filter['academicYear.name'] = String(req.query.academicYearName).trim();
+    if (req.query.admissionYear) {
+      filter.admissionYear = Number(req.query.admissionYear);
     }
 
     const students = await Student.find(filter)
@@ -488,15 +476,15 @@ export const getAllStudents = async (req, res) => {
       .populate('batchId', 'name startYear endYear regulationId')
       .populate('sectionId', 'name capacity isActive');
 
-    return res.json(students);
+    return res.json({
+      success: true,
+      message: 'Students fetched successfully',
+      data: { students }
+    });
   } catch (error) {
     return handleBadRequest(res, error);
   }
 };
-
-/* ======================================================
-   UPDATE STUDENT SEMESTER
-====================================================== */
 
 export const updateStudentSemester = async (req, res) => {
   try {
@@ -504,7 +492,9 @@ export const updateStudentSemester = async (req, res) => {
     const { semesterNumber } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid student id' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'Invalid student id', data: {} });
     }
 
     const normalizedSemesterNumber = Number(semesterNumber);
@@ -514,47 +504,38 @@ export const updateStudentSemester = async (req, res) => {
       normalizedSemesterNumber < 1 ||
       normalizedSemesterNumber > 12
     ) {
-      return res.status(400).json({ message: 'Invalid semesterNumber' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'Invalid semesterNumber', data: {} });
     }
 
     const student = await Student.findById(id);
 
     if (!student) {
-      return res.status(404).json({ message: 'Student not found' });
-    }
-
-    const academicYear = await resolveAcademicYearForStudent(
-      student.batchId,
-      normalizedSemesterNumber
-    );
-
-    if (!academicYear) {
       return res
-        .status(400)
-        .json({ message: 'Unable to resolve academic year' });
+        .status(404)
+        .json({ success: false, message: 'Student not found', data: {} });
     }
 
     student.semesterNumber = normalizedSemesterNumber;
-    student.academicYear = academicYear;
     await student.save();
 
     return res.json({
+      success: true,
       message: 'Student semester updated successfully',
-      student
+      data: { student }
     });
   } catch (error) {
     return handleBadRequest(res, error);
   }
 };
 
-/* ======================================================
-   BULK UPLOAD STUDENTS
-====================================================== */
-
 export const uploadMultipleStudents = async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ message: 'No file uploaded' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'No file uploaded', data: {} });
     }
 
     const workbook = req.file.buffer
@@ -576,7 +557,8 @@ export const uploadMultipleStudents = async (req, res) => {
           firstName,
           lastName,
           registerNumber,
-          semesterNumber
+          semesterNumber,
+          admissionYear
         } = row;
 
         if (!email || !firstName || !lastName || !registerNumber) {
@@ -599,19 +581,18 @@ export const uploadMultipleStudents = async (req, res) => {
 
         const context = await resolveStudentContext(row, true);
         const normalizedSemesterNumber = Number(semesterNumber) || 1;
-        const academicYear = await resolveAcademicYearForStudent(
-          context.batchId,
-          normalizedSemesterNumber
-        );
+        const finalAdmissionYear =
+          Number(admissionYear) ||
+          context.batchStartYear ||
+          new Date().getFullYear();
 
         const user = await User.create({
           email: normalizedEmail,
           password: password || '123456',
-          role: 'STUDENT',
-          profileType: 'Student'
+          role: 'STUDENT'
         });
 
-        const student = await Student.create({
+        await Student.create({
           userId: user._id,
           departmentId: context.departmentId,
           batchId: context.batchId,
@@ -619,12 +600,10 @@ export const uploadMultipleStudents = async (req, res) => {
           firstName,
           lastName,
           registerNumber: normalizedRegister,
+          admissionYear: finalAdmissionYear,
           semesterNumber: normalizedSemesterNumber,
-          academicYear
+          status: 'active'
         });
-
-        user.profileRef = student._id;
-        await user.save();
 
         inserted++;
       } catch (error) {
@@ -633,19 +612,18 @@ export const uploadMultipleStudents = async (req, res) => {
     }
 
     return res.json({
+      success: true,
       message: 'Upload completed',
-      inserted,
-      skipped,
-      failed
+      data: {
+        inserted,
+        skipped,
+        failed
+      }
     });
   } catch (error) {
     return handleBadRequest(res, error);
   }
 };
-
-/* ======================================================
-   STUDENT STATS
-====================================================== */
 
 export const getStudentStats = async (req, res) => {
   try {
@@ -669,22 +647,22 @@ export const getStudentStats = async (req, res) => {
     const totalStudents = yearMap[1] + yearMap[2] + yearMap[3] + yearMap[4];
 
     return res.json({
-      totalStudents,
-      yearWise: {
-        firstYear: yearMap[1],
-        secondYear: yearMap[2],
-        thirdYear: yearMap[3],
-        fourthYear: yearMap[4]
+      success: true,
+      message: 'Student stats fetched successfully',
+      data: {
+        totalStudents,
+        yearWise: {
+          firstYear: yearMap[1],
+          secondYear: yearMap[2],
+          thirdYear: yearMap[3],
+          fourthYear: yearMap[4]
+        }
       }
     });
   } catch (error) {
     return handleBadRequest(res, error);
   }
 };
-
-/* ======================================================
-   DEPARTMENT WISE STUDENT COUNT
-====================================================== */
 
 export const getStudentDepartmentWise = async (req, res) => {
   try {
@@ -733,8 +711,12 @@ export const getStudentDepartmentWise = async (req, res) => {
     const data = Object.values(grouped);
 
     return res.json({
-      totalDepartments: data.length,
-      departments: data
+      success: true,
+      message: 'Department-wise student stats fetched successfully',
+      data: {
+        totalDepartments: data.length,
+        departments: data
+      }
     });
   } catch (error) {
     return handleBadRequest(res, error);

@@ -25,12 +25,12 @@ const router = express.Router();
  *       type: object
  *       required:
  *         - name
- *         - batchId
+ *         - batchProgramId
  *       properties:
  *         name:
  *           type: string
  *           example: A
- *         batchId:
+ *         batchProgramId:
  *           type: string
  *         capacity:
  *           type: integer
@@ -43,7 +43,7 @@ const router = express.Router();
  *       properties:
  *         name:
  *           type: string
- *         batchId:
+ *         batchProgramId:
  *           type: string
  *         capacity:
  *           type: integer
@@ -52,10 +52,15 @@ const router = express.Router();
  *     SectionResponse:
  *       type: object
  *       properties:
+ *         success:
+ *           type: boolean
  *         message:
  *           type: string
- *         section:
+ *         data:
  *           type: object
+ *           properties:
+ *             section:
+ *               type: object
  */
 
 /**
@@ -65,8 +70,8 @@ const router = express.Router();
  *     summary: Create section
  *     tags: [Sections]
  *     description: |
- *       Creates a section under a batch. Section name is normalized to uppercase.
- *       Section uniqueness is enforced per batch.
+ *       Creates a section under a BatchProgram. Section name is normalized to uppercase.
+ *       Section uniqueness is enforced per BatchProgram.
  *
  *       **Access:** Authenticated users with role ADMIN only
  *     security:
@@ -85,13 +90,13 @@ const router = express.Router();
  *             schema:
  *               $ref: '#/components/schemas/SectionResponse'
  *       400:
- *         description: Missing required fields, invalid batchId, or missing batch
+ *         description: Missing required fields or invalid batchProgramId
  *       401:
  *         description: Unauthorized (JWT missing or invalid)
  *       403:
  *         description: Access denied (requires ADMIN)
  *       409:
- *         description: Section already exists in this batch
+ *         description: Section already exists for this BatchProgram
  *       500:
  *         description: Server error
  */
@@ -104,15 +109,15 @@ router.post('/', protect, authorize('ADMIN'), createSection);
  *     summary: Get all sections
  *     tags: [Sections]
  *     description: |
- *       Returns sections with nested batch, department, and regulation details.
- *       Optional filters: `batchId`, `isActive`.
+ *       Returns sections with nested BatchProgram, batch, department, and regulation details.
+ *       Optional filters: `batchProgramId`, `isActive`.
  *
  *       **Access:** Any authenticated user
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
- *         name: batchId
+ *         name: batchProgramId
  *         schema:
  *           type: string
  *       - in: query
@@ -123,7 +128,7 @@ router.post('/', protect, authorize('ADMIN'), createSection);
  *       200:
  *         description: Section list fetched
  *       400:
- *         description: Invalid batchId
+ *         description: Invalid batchProgramId
  *       401:
  *         description: Unauthorized (JWT missing or invalid)
  *       500:
@@ -138,7 +143,7 @@ router.get('/', protect, getAllSections);
  *     summary: Get section by id
  *     tags: [Sections]
  *     description: |
- *       Returns a section with nested batch context.
+ *       Returns a section with nested BatchProgram context.
  *
  *       **Access:** Any authenticated user
  *     security:
@@ -170,8 +175,8 @@ router.get('/:id', protect, getSectionById);
  *     summary: Update section
  *     tags: [Sections]
  *     description: |
- *       Updates section fields. If `name` or `batchId` changes,
- *       duplicate section check is re-run within target batch.
+ *       Updates section fields. If `name` or `batchProgramId` changes,
+ *       duplicate section check is re-run within target BatchProgram.
  *
  *       **Access:** Authenticated users with role ADMIN only
  *     security:

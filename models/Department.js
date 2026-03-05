@@ -25,12 +25,6 @@ const departmentSchema = new mongoose.Schema(
       required: true
     },
 
-    hodId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Faculty',
-      default: null
-    },
-
     isActive: {
       type: Boolean,
       default: true,
@@ -39,8 +33,6 @@ const departmentSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
-
-/* ---------------- INDEXES ---------------- */
 
 /* ---------------- MIDDLEWARE ---------------- */
 departmentSchema.pre('validate', function () {

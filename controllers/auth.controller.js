@@ -4,9 +4,6 @@ import AppError from '../utils/AppError.js';
 import { generateToken } from '../utils/generateToken.js';
 import { sendEmail } from '../utils/sendEmail.js';
 
-/* ============================
-   REGISTER
-============================ */
 export const registerUser = async (req, res, next) => {
   try {
     const { email, password, role } = req.body;
@@ -31,6 +28,7 @@ export const registerUser = async (req, res, next) => {
 
     res.status(201).json({
       success: true,
+      message: 'User registered successfully',
       data: {
         _id: user._id,
         email: user.email,
@@ -43,9 +41,6 @@ export const registerUser = async (req, res, next) => {
   }
 };
 
-/* ============================
-   LOGIN
-============================ */
 export const loginUser = async (req, res, next) => {
   try {
     const { email, password } = req.body;
@@ -76,6 +71,7 @@ export const loginUser = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
+      message: 'Login successful',
       data: {
         _id: user._id,
         email: user.email,
@@ -88,9 +84,6 @@ export const loginUser = async (req, res, next) => {
   }
 };
 
-/* ============================
-   FORGOT PASSWORD
-============================ */
 export const forgotPassword = async (req, res, next) => {
   try {
     const { email } = req.body;
@@ -150,9 +143,6 @@ export const forgotPassword = async (req, res, next) => {
   }
 };
 
-/* ============================
-   RESET PASSWORD
-============================ */
 export const resetPassword = async (req, res, next) => {
   try {
     const { token, newPassword } = req.body;
@@ -187,9 +177,6 @@ export const resetPassword = async (req, res, next) => {
   }
 };
 
-/* ============================
-   CHANGE PASSWORD
-============================ */
 export const changePassword = async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body;

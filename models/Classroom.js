@@ -2,27 +2,36 @@ import mongoose from 'mongoose';
 
 const classroomSchema = new mongoose.Schema(
   {
-    sectionId: {
+    facultyAssignmentId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Section',
+      ref: 'FacultyAssignment',
       required: true,
       index: true
     },
-
-    subjectId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Subject',
-      required: true,
-      index: true
-    },
-
     facultyId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Faculty',
       required: true,
       index: true
     },
-
+    sectionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Section',
+      required: true,
+      index: true
+    },
+    subjectId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Subject',
+      required: true,
+      index: true
+    },
+    academicYearId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'AcademicYear',
+      required: true,
+      index: true
+    },
     semesterNumber: {
       type: Number,
       required: true,
@@ -30,43 +39,26 @@ const classroomSchema = new mongoose.Schema(
       max: 12,
       index: true
     },
-
-    facultyAssignmentId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'FacultyAssignment',
-      default: null,
-      index: true
-    },
-
     name: {
       type: String,
       required: true,
       trim: true
     },
-
     description: {
       type: String,
       trim: true
     },
-
     classCode: {
       type: String,
       unique: true,
       index: true
     },
-
-    isActive: {
-      type: Boolean,
-      default: true,
+    status: {
+      type: String,
+      enum: ['active', 'archived'],
+      default: 'active',
       index: true
     },
-
-    isArchived: {
-      type: Boolean,
-      default: false,
-      index: true
-    },
-
     archivedAt: {
       type: Date,
       default: null
@@ -75,15 +67,11 @@ const classroomSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/* ---------------- INDEXES ---------------- */
 classroomSchema.index(
-  { sectionId: 1, subjectId: 1, semesterNumber: 1 },
+  { sectionId: 1, subjectId: 1, academicYearId: 1, semesterNumber: 1 },
   { unique: true }
 );
 
-classroomSchema.index({ sectionId: 1, isActive: 1, isArchived: 1 });
-
-/* ---------------- MIDDLEWARE ---------------- */
 classroomSchema.pre('validate', function () {
   if (!this.classCode && this.sectionId && this.subjectId) {
     const sectionPart = String(this.sectionId).slice(-4).toUpperCase();
@@ -93,11 +81,11 @@ classroomSchema.pre('validate', function () {
     this.classCode = `CLS-${sectionPart}-${subjectPart}-${semPart}`;
   }
 
-  if (this.isArchived && !this.archivedAt) {
+  if (this.status === 'archived' && !this.archivedAt) {
     this.archivedAt = new Date();
   }
 
-  if (!this.isArchived) {
+  if (this.status === 'active') {
     this.archivedAt = null;
   }
 });

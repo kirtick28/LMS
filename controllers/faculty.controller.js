@@ -4,10 +4,6 @@ import Faculty from '../models/Faculty.js';
 import User from '../models/User.js';
 import Department from '../models/Department.js';
 
-/* =========================
-   HELPERS
-========================= */
-
 const normalizeKey = (key) =>
   key.toString().trim().toLowerCase().replace(/\s+/g, '').replace(/[_-]/g, '');
 
@@ -117,10 +113,6 @@ const normalizeExcelRow = (row) => {
   };
 };
 
-/* =========================
-   DEPARTMENT RESOLUTION
-========================= */
-
 const resolveDepartment = async (payload) => {
   const departmentId = clean(payload.departmentId);
 
@@ -174,10 +166,6 @@ const resolveDepartmentFromParam = async (departmentParam) => {
   });
 };
 
-/* =========================
-   ADD FACULTY
-========================= */
-
 export const addFaculty = async (req, res) => {
   try {
     const {
@@ -203,8 +191,10 @@ export const addFaculty = async (req, res) => {
 
     if (!email || !firstName || !lastName || !employeeId || !inputPhone) {
       return res.status(400).json({
+        success: false,
         message:
-          'email, firstName, lastName, employeeId and mobileNumber/phone are required'
+          'email, firstName, lastName, employeeId and mobileNumber/phone are required',
+        data: {}
       });
     }
 
@@ -217,15 +207,19 @@ export const addFaculty = async (req, res) => {
     ]);
 
     if (existingUser) {
-      return res
-        .status(400)
-        .json({ message: 'User already exists with this email' });
+      return res.status(400).json({
+        success: false,
+        message: 'User already exists with this email',
+        data: {}
+      });
     }
 
     if (existingEmployee) {
-      return res
-        .status(400)
-        .json({ message: 'Faculty already exists with this employeeId' });
+      return res.status(400).json({
+        success: false,
+        message: 'Faculty already exists with this employeeId',
+        data: {}
+      });
     }
 
     const department = await resolveDepartment(req.body);
@@ -234,7 +228,6 @@ export const addFaculty = async (req, res) => {
       email: cleanEmail,
       password: password || '123456',
       role: 'FACULTY',
-      profileType: 'Faculty',
       gender,
       dateOfBirth: parseDateValue(dateOfBirth) || undefined
     });
@@ -255,40 +248,50 @@ export const addFaculty = async (req, res) => {
       noticePeriod
     });
 
-    user.profileRef = faculty._id;
-    await user.save();
-
     return res.status(201).json({
+      success: true,
       message: 'Faculty created successfully',
-      faculty
+      data: { faculty }
     });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };
-
-/* =========================
-   UPDATE FACULTY
-========================= */
 
 export const updateFaculty = async (req, res) => {
   try {
     const { id } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid faculty id' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid faculty id',
+        data: {}
+      });
     }
 
     const faculty = await Faculty.findById(id);
 
     if (!faculty) {
-      return res.status(404).json({ message: 'Faculty not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Faculty not found',
+        data: {}
+      });
     }
 
     const user = await User.findById(faculty.userId).select('+password');
 
     if (!user) {
-      return res.status(404).json({ message: 'Linked user not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Linked user not found',
+        data: {}
+      });
     }
 
     if (req.body.email) {
@@ -300,7 +303,11 @@ export const updateFaculty = async (req, res) => {
       });
 
       if (duplicateEmail) {
-        return res.status(400).json({ message: 'Email already in use' });
+        return res.status(400).json({
+          success: false,
+          message: 'Email already in use',
+          data: {}
+        });
       }
 
       user.email = updatedEmail;
@@ -346,7 +353,11 @@ export const updateFaculty = async (req, res) => {
       });
 
       if (duplicateEmployee) {
-        return res.status(400).json({ message: 'employeeId already in use' });
+        return res.status(400).json({
+          success: false,
+          message: 'employeeId already in use',
+          data: {}
+        });
       }
 
       faculty.employeeId = nextEmployeeId;
@@ -376,30 +387,39 @@ export const updateFaculty = async (req, res) => {
     await Promise.all([faculty.save(), user.save()]);
 
     return res.json({
+      success: true,
       message: 'Faculty updated successfully',
-      faculty
+      data: { faculty }
     });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };
-
-/* =========================
-   DELETE FACULTY
-========================= */
 
 export const deleteFaculty = async (req, res) => {
   try {
     const { id } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid faculty id' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid faculty id',
+        data: {}
+      });
     }
 
     const faculty = await Faculty.findById(id);
 
     if (!faculty) {
-      return res.status(404).json({ message: 'Faculty not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Faculty not found',
+        data: {}
+      });
     }
 
     await Promise.all([
@@ -407,20 +427,28 @@ export const deleteFaculty = async (req, res) => {
       Faculty.findByIdAndDelete(faculty._id)
     ]);
 
-    return res.json({ message: 'Faculty deleted successfully' });
+    return res.json({
+      success: true,
+      message: 'Faculty deleted successfully',
+      data: {}
+    });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };
-
-/* =========================
-   BULK UPLOAD FACULTY
-========================= */
 
 export const uploadMultipleFaculty = async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ message: 'No file uploaded' });
+      return res.status(400).json({
+        success: false,
+        message: 'No file uploaded',
+        data: {}
+      });
     }
 
     const workbook = req.file.buffer
@@ -464,7 +492,6 @@ export const uploadMultipleFaculty = async (req, res) => {
             email: payload.email,
             password: payload.password || '123456',
             role: 'FACULTY',
-            profileType: 'Faculty',
             gender: payload.gender || undefined,
             dateOfBirth: parseDateValue(payload.dateOfBirth) || undefined
           });
@@ -487,8 +514,6 @@ export const uploadMultipleFaculty = async (req, res) => {
           });
           facultyCreated++;
 
-          user.profileRef = faculty._id;
-          await user.save();
           continue;
         }
 
@@ -497,10 +522,8 @@ export const uploadMultipleFaculty = async (req, res) => {
             email: payload.email,
             password: payload.password || '123456',
             role: 'FACULTY',
-            profileType: 'Faculty',
             gender: payload.gender || undefined,
-            dateOfBirth: parseDateValue(payload.dateOfBirth) || undefined,
-            profileRef: faculty._id
+            dateOfBirth: parseDateValue(payload.dateOfBirth) || undefined
           });
           usersCreated++;
 
@@ -512,7 +535,6 @@ export const uploadMultipleFaculty = async (req, res) => {
           if (user.role !== 'FACULTY') {
             user.role = 'FACULTY';
           }
-          user.profileType = 'Faculty';
           usersUpdated++;
 
           if (!faculty) {
@@ -568,10 +590,6 @@ export const uploadMultipleFaculty = async (req, res) => {
           facultyCreated++;
         }
 
-        if (user.profileRef?.toString() !== faculty._id.toString()) {
-          user.profileRef = faculty._id;
-        }
-
         await user.save();
       } catch (error) {
         failedRows.push({
@@ -582,22 +600,25 @@ export const uploadMultipleFaculty = async (req, res) => {
     }
 
     return res.json({
+      success: true,
       message: 'Faculty upload sync completed',
-      usersCreated,
-      usersUpdated,
-      facultyCreated,
-      facultyUpdated,
-      failedCount: failedRows.length,
-      failedRows
+      data: {
+        usersCreated,
+        usersUpdated,
+        facultyCreated,
+        facultyUpdated,
+        failedCount: failedRows.length,
+        failedRows
+      }
     });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };
-
-/* =========================
-   GET ALL FACULTY
-========================= */
 
 export const getAllFaculty = async (req, res) => {
   try {
@@ -607,7 +628,11 @@ export const getAllFaculty = async (req, res) => {
 
     if (departmentId) {
       if (!mongoose.Types.ObjectId.isValid(departmentId)) {
-        return res.status(400).json({ message: 'Invalid departmentId' });
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid departmentId',
+          data: {}
+        });
       }
       filter.departmentId = departmentId;
     }
@@ -624,15 +649,19 @@ export const getAllFaculty = async (req, res) => {
         'firstName lastName employeeId designation'
       );
 
-    return res.json(facultyList);
+    return res.json({
+      success: true,
+      message: 'Faculty list retrieved successfully',
+      data: { facultyList }
+    });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };
-
-/* =========================
-   DEPARTMENT WISE COUNT
-========================= */
 
 export const getDepartmentWise = async (req, res) => {
   try {
@@ -669,22 +698,30 @@ export const getDepartmentWise = async (req, res) => {
       { $sort: { departmentName: 1 } }
     ]);
 
-    return res.json(result);
+    return res.json({
+      success: true,
+      message: 'Department wise counts retrieved successfully',
+      data: { result }
+    });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };
-
-/* =========================
-   DEPARTMENT WISE DESIGNATION SUMMARY
-========================= */
 
 export const getDepartmentWiseFaculty = async (req, res) => {
   try {
     const department = await resolveDepartmentFromParam(req.params.department);
 
     if (!department) {
-      return res.status(404).json({ message: 'Department not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Department not found',
+        data: {}
+      });
     }
 
     const rows = await Faculty.aggregate([
@@ -725,30 +762,38 @@ export const getDepartmentWiseFaculty = async (req, res) => {
     });
 
     return res.json({
-      department: {
-        _id: department._id,
-        name: department.name,
-        code: department.code
-      },
-      total: rows.reduce((sum, row) => sum + row.count, 0),
-      designationSummary,
-      categorySummary
+      success: true,
+      message: 'Department wise faculty summary retrieved successfully',
+      data: {
+        department: {
+          _id: department._id,
+          name: department.name,
+          code: department.code
+        },
+        total: rows.reduce((sum, row) => sum + row.count, 0),
+        designationSummary,
+        categorySummary
+      }
     });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };
-
-/* =========================
-   DEPARTMENT WISE FACULTY LIST
-========================= */
 
 export const getDepartmentWiseFacultyList = async (req, res) => {
   try {
     const department = await resolveDepartmentFromParam(req.params.department);
 
     if (!department) {
-      return res.status(404).json({ message: 'Department not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Department not found',
+        data: {}
+      });
     }
 
     const faculty = await Faculty.find({ departmentId: department._id })
@@ -757,17 +802,21 @@ export const getDepartmentWiseFacultyList = async (req, res) => {
       .populate('departmentId', 'name code');
 
     return res.json({
-      total: faculty.length,
-      faculty
+      success: true,
+      message: 'Department wise faculty list retrieved successfully',
+      data: {
+        total: faculty.length,
+        faculty
+      }
     });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };
-
-/* =========================
-   DASHBOARD STATS
-========================= */
 
 export const getDashboardStats = async (req, res) => {
   try {
@@ -819,13 +868,21 @@ export const getDashboardStats = async (req, res) => {
     }, {});
 
     return res.json({
-      totalFaculty: total,
-      deansAndHods: stats.deanHod || 0,
-      professors: stats.professor || 0,
-      associateAssistant: (stats.associate || 0) + (stats.assistant || 0),
-      others: stats.other || 0
+      success: true,
+      message: 'Dashboard stats retrieved successfully',
+      data: {
+        totalFaculty: total,
+        deansAndHods: stats.deanHod || 0,
+        professors: stats.professor || 0,
+        associateAssistant: (stats.associate || 0) + (stats.assistant || 0),
+        others: stats.other || 0
+      }
     });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };

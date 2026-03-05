@@ -8,37 +8,31 @@ const facultySchema = new mongoose.Schema(
       required: true,
       unique: true
     },
-
     departmentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Department',
       required: true,
       index: true
     },
-
     salutation: {
       type: String,
       trim: true
     },
-
     firstName: {
       type: String,
       required: true,
       trim: true
     },
-
     lastName: {
       type: String,
       required: true,
       trim: true
     },
-
     phone: {
       type: String,
       trim: true,
       match: /^[0-9]{10}$/
     },
-
     employeeId: {
       type: String,
       required: true,
@@ -47,12 +41,10 @@ const facultySchema = new mongoose.Schema(
       trim: true,
       index: true
     },
-
     profileImage: {
       type: String,
       default: null
     },
-
     designation: {
       type: String,
       enum: [
@@ -69,45 +61,42 @@ const facultySchema = new mongoose.Schema(
       ],
       required: true
     },
-
     qualification: {
       type: String,
       trim: true
     },
-
     workType: {
       type: String,
       trim: true
     },
-
     joiningDate: {
       type: Date
     },
-
     reportingManager: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Faculty',
       default: null
     },
-
     noticePeriod: {
       type: String,
       trim: true
     },
-
     employmentStatus: {
       type: String,
       enum: ['ACTIVE', 'ON_LEAVE', 'RESIGNED', 'RETIRED'],
       default: 'ACTIVE',
       index: true
     },
-
+    status: {
+      type: String,
+      enum: ['active', 'inactive'],
+      default: 'active'
+    },
     isActive: {
       type: Boolean,
       default: true,
       index: true
     },
-
     documents: {
       marksheet: { type: String, default: null },
       experienceCertificate: { type: String, default: null },
@@ -117,18 +106,16 @@ const facultySchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/* ---------------- INDEXES ---------------- */
 facultySchema.index({ departmentId: 1, employmentStatus: 1 });
 
-/* ---------------- VIRTUALS ---------------- */
 facultySchema.virtual('fullName').get(function () {
   return `${this.firstName} ${this.lastName}`;
 });
 
-/* ---------------- MIDDLEWARE ---------------- */
 facultySchema.pre('validate', function () {
   if (this.employmentStatus) {
     this.isActive = !['RESIGNED', 'RETIRED'].includes(this.employmentStatus);
+    this.status = this.isActive ? 'active' : 'inactive';
   }
 });
 

@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
 ============================ */
 export const createDepartment = async (req, res) => {
   try {
-    const { name, code, program, hodId, isActive } = req.body;
+    const { name, code, program, isActive } = req.body;
 
     if (!name || !code) {
       return res.status(400).json({
@@ -35,8 +35,7 @@ export const createDepartment = async (req, res) => {
       name: normalizedName,
       code: normalizedCode,
       program,
-      hodId: hodId || null,
-      isActive: isActive || true
+      isActive: isActive ?? true
     });
 
     return res.status(201).json({
@@ -68,9 +67,7 @@ export const getAllDepartments = async (req, res) => {
       filter.isActive = String(isActive).toLowerCase() === 'true';
     }
 
-    const departments = await Department.find(filter)
-      .populate('hodId', 'firstName lastName employeeId designation')
-      .sort({ name: 1 });
+    const departments = await Department.find(filter).sort({ name: 1 });
 
     return res.json({
       success: true,
@@ -102,10 +99,7 @@ export const getDepartmentById = async (req, res) => {
       });
     }
 
-    const department = await Department.findById(id).populate(
-      'hodId',
-      'firstName lastName employeeId designation'
-    );
+    const department = await Department.findById(id);
 
     if (!department) {
       return res.status(404).json({
@@ -185,7 +179,7 @@ export const updateDepartment = async (req, res) => {
     const department = await Department.findByIdAndUpdate(id, updates, {
       new: true,
       runValidators: true
-    }).populate('hodId', 'firstName lastName employeeId designation');
+    });
 
     if (!department) {
       return res.status(404).json({

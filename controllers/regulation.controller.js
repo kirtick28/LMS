@@ -11,18 +11,15 @@ const normalizeTotalSemesters = (value) => {
   return Math.min(Math.max(parsed, 1), 8);
 };
 
-/* ============================
-   CREATE REGULATION
-============================ */
 export const createRegulation = async (req, res) => {
   try {
-    const { name, startYear, totalSemesters } = req.body;
+    const { name, startYear, totalSemesters, isActive } = req.body;
 
     if (!name && !startYear) {
       return res.status(400).json({
         success: false,
         message: 'name or startYear is required',
-        data: null
+        data: {}
       });
     }
 
@@ -38,60 +35,59 @@ export const createRegulation = async (req, res) => {
       return res.status(409).json({
         success: false,
         message: 'Regulation already exists',
-        data: null
+        data: {}
       });
     }
 
     const regulation = await Regulation.create({
       name: normalizedName,
       startYear,
-      totalSemesters: normalizeTotalSemesters(totalSemesters)
+      totalSemesters: normalizeTotalSemesters(totalSemesters),
+      isActive
     });
 
     return res.status(201).json({
       success: true,
       message: 'Regulation created successfully',
-      data: {
-        regulation
-      }
+      data: { regulation }
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
       message: error.message,
-      data: null
+      data: {}
     });
   }
 };
 
-/* ============================
-   GET ALL REGULATIONS
-============================ */
 export const getAllRegulations = async (req, res) => {
   try {
-    const regulations = await Regulation.find().sort({
+    const { isActive } = req.query;
+    const filter = {};
+
+    if (isActive !== undefined) {
+      filter.isActive = String(isActive).toLowerCase() === 'true';
+    }
+
+    const regulations = await Regulation.find(filter).sort({
       startYear: -1,
       name: 1
     });
 
     return res.json({
       success: true,
-      data: {
-        regulations
-      }
+      message: 'Regulations retrieved successfully',
+      data: { regulations }
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
       message: error.message,
-      data: null
+      data: {}
     });
   }
 };
 
-/* ============================
-   GET REGULATION BY ID
-============================ */
 export const getRegulationById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -100,7 +96,7 @@ export const getRegulationById = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Invalid regulation id',
-        data: null
+        data: {}
       });
     }
 
@@ -110,28 +106,24 @@ export const getRegulationById = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Regulation not found',
-        data: null
+        data: {}
       });
     }
 
     return res.json({
       success: true,
-      data: {
-        regulation
-      }
+      message: 'Regulation retrieved successfully',
+      data: { regulation }
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
       message: error.message,
-      data: null
+      data: {}
     });
   }
 };
 
-/* ============================
-   UPDATE REGULATION
-============================ */
 export const updateRegulation = async (req, res) => {
   try {
     const { id } = req.params;
@@ -141,7 +133,7 @@ export const updateRegulation = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Invalid regulation id',
-        data: null
+        data: {}
       });
     }
 
@@ -157,7 +149,7 @@ export const updateRegulation = async (req, res) => {
         return res.status(409).json({
           success: false,
           message: 'Regulation name already exists',
-          data: null
+          data: {}
         });
       }
     }
@@ -172,7 +164,7 @@ export const updateRegulation = async (req, res) => {
         return res.status(409).json({
           success: false,
           message: 'Regulation with same startYear already exists',
-          data: null
+          data: {}
         });
       }
     }
@@ -190,29 +182,24 @@ export const updateRegulation = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Regulation not found',
-        data: null
+        data: {}
       });
     }
 
     return res.json({
       success: true,
       message: 'Regulation updated successfully',
-      data: {
-        regulation
-      }
+      data: { regulation }
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
       message: error.message,
-      data: null
+      data: {}
     });
   }
 };
 
-/* ============================
-   DELETE REGULATION
-============================ */
 export const deleteRegulation = async (req, res) => {
   try {
     const { id } = req.params;
@@ -221,7 +208,7 @@ export const deleteRegulation = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Invalid regulation id',
-        data: null
+        data: {}
       });
     }
 
@@ -231,22 +218,20 @@ export const deleteRegulation = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Regulation not found',
-        data: null
+        data: {}
       });
     }
 
     return res.json({
       success: true,
       message: 'Regulation deleted successfully',
-      data: {
-        regulation
-      }
+      data: { regulation }
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
       message: error.message,
-      data: null
+      data: {}
     });
   }
 };

@@ -24,16 +24,11 @@ const router = express.Router();
  *     BatchCreateRequest:
  *       type: object
  *       required:
- *         - departmentId
  *         - startYear
- *         - regulationId
  *       properties:
  *         name:
  *           type: string
- *           example: CSE-2023-2027
- *         departmentId:
- *           type: string
- *           description: Department ObjectId
+ *           example: 2023-2027
  *         startYear:
  *           type: integer
  *           example: 2023
@@ -44,9 +39,6 @@ const router = express.Router();
  *         programDuration:
  *           type: integer
  *           example: 4
- *         regulationId:
- *           type: string
- *           description: Regulation ObjectId
  *         isActive:
  *           type: boolean
  *           example: true
@@ -63,22 +55,34 @@ const router = express.Router();
  *           type: integer
  *         programDuration:
  *           type: integer
- *         regulationId:
- *           type: string
  *         isActive:
  *           type: boolean
  *     BatchResponse:
  *       type: object
  *       properties:
+ *         success:
+ *           type: boolean
  *         message:
  *           type: string
- *         batch:
+ *         data:
  *           type: object
- *     MessageResponse:
+ *           properties:
+ *             batch:
+ *               type: object
+ *     BatchListResponse:
  *       type: object
  *       properties:
+ *         success:
+ *           type: boolean
  *         message:
  *           type: string
+ *         data:
+ *           type: object
+ *           properties:
+ *             batches:
+ *               type: array
+ *               items:
+ *                 type: object
  */
 
 /**
@@ -88,9 +92,8 @@ const router = express.Router();
  *     summary: Create a new batch
  *     tags: [Batches]
  *     description: |
- *       Creates a batch for a department-regulation combination.
+ *       Creates a global batch for a year range.
  *       If `endYear` is not provided, it is derived from `startYear + programDuration`.
- *       Also ensures an `UNALLOCATED` section exists for the created batch.
  *
  *       **Access:** Authenticated users with role ADMIN only
  *     security:
@@ -109,13 +112,13 @@ const router = express.Router();
  *             schema:
  *               $ref: '#/components/schemas/BatchResponse'
  *       400:
- *         description: Missing required fields, invalid ids, missing linked entities, or invalid year range
+ *         description: Missing required fields or invalid year range
  *       401:
  *         description: Unauthorized (JWT missing or invalid)
  *       403:
  *         description: Access denied (requires ADMIN)
  *       409:
- *         description: Batch already exists for department and year range
+ *         description: Batch already exists for the same year range
  *       500:
  *         description: Server error
  */
@@ -128,21 +131,13 @@ router.post('/', protect, authorize('ADMIN'), createBatch);
  *     summary: Get all batches
  *     tags: [Batches]
  *     description: |
- *       Returns batches with populated department and regulation.
- *       Optional filters are supported.
+ *       Returns batches.
+ *       Optional filter: `isActive=true|false`.
  *
  *       **Access:** Any authenticated user
  *     security:
  *       - bearerAuth: []
  *     parameters:
- *       - in: query
- *         name: departmentId
- *         schema:
- *           type: string
- *       - in: query
- *         name: regulationId
- *         schema:
- *           type: string
  *       - in: query
  *         name: isActive
  *         schema:
@@ -153,11 +148,9 @@ router.post('/', protect, authorize('ADMIN'), createBatch);
  *         content:
  *           application/json:
  *             schema:
- *               type: array
- *               items:
- *                 type: object
+ *               $ref: '#/components/schemas/BatchListResponse'
  *       400:
- *         description: Invalid departmentId or regulationId
+ *         description: Invalid request
  *       401:
  *         description: Unauthorized (JWT missing or invalid)
  *       500:
@@ -172,7 +165,7 @@ router.get('/', protect, getAllBatches);
  *     summary: Get batch by id
  *     tags: [Batches]
  *     description: |
- *       Returns a single batch with populated department and regulation.
+ *       Returns a single batch by id.
  *
  *       **Access:** Any authenticated user
  *     security:
@@ -204,8 +197,8 @@ router.get('/:id', protect, getBatchById);
  *     summary: Update batch
  *     tags: [Batches]
  *     description: |
- *       Updates batch details. If `departmentId`, `startYear`, or `endYear` changes,
- *       uniqueness is re-validated for the department-year combination.
+ *       Updates batch details. If year range changes,
+ *       uniqueness is re-validated for `startYear` + `endYear`.
  *
  *       **Access:** Authenticated users with role ADMIN only
  *     security:
@@ -230,7 +223,7 @@ router.get('/:id', protect, getBatchById);
  *             schema:
  *               $ref: '#/components/schemas/BatchResponse'
  *       400:
- *         description: Invalid ids, missing linked entities, or invalid year range
+ *         description: Invalid id or invalid year range
  *       401:
  *         description: Unauthorized (JWT missing or invalid)
  *       403:
@@ -238,7 +231,7 @@ router.get('/:id', protect, getBatchById);
  *       404:
  *         description: Batch not found
  *       409:
- *         description: Duplicate department-year combination
+ *         description: Duplicate year range combination
  *       500:
  *         description: Server error
  */

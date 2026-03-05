@@ -3,8 +3,91 @@ import BatchProgram from '../models/BatchProgram.js';
 import Batch from '../models/Batch.js';
 import Department from '../models/Department.js';
 import Regulation from '../models/Regulation.js';
+import Section from '../models/Section.js';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+
+export const getBatchProgramDetailsByParams = async (req, res) => {
+  try {
+    const batchId = req.params.batchId || req.query.batchId;
+    const departmentId = req.params.departmentId || req.query.departmentId;
+
+    if (!batchId || !departmentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'batchId and departmentId are required',
+        data: {}
+      });
+    }
+
+    if (!isValidObjectId(batchId) || !isValidObjectId(departmentId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid batchId or departmentId',
+        data: {}
+      });
+    }
+
+    const [batch, department] = await Promise.all([
+      Batch.findById(batchId),
+      Department.findById(departmentId)
+    ]);
+
+    if (!batch || !department) {
+      return res.status(404).json({
+        success: false,
+        message: 'Batch, Department, or Regulation not found',
+        data: {}
+      });
+    }
+
+    const batchProgram = await BatchProgram.findOne({
+      batchId,
+      departmentId
+    })
+      .populate('batchId', 'name startYear endYear')
+      .populate('departmentId', 'name code program')
+      .populate('regulationId', 'name startYear');
+
+    if (!batchProgram) {
+      return res.status(404).json({
+        success: false,
+        message: 'BatchProgram not found for this department and batch',
+        data: {
+          batchProgram: {
+            departmentId: {
+              _id: department._id,
+              name: department.name,
+              code: department.code,
+              program: department.program
+            },
+            batchId: {
+              _id: batch._id,
+              name: batch.name,
+              startYear: batch.startYear,
+              endYear: batch.endYear
+            }
+          }
+        }
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'BatchProgram details retrieved successfully',
+      data: {
+        batchProgramId: batchProgram._id,
+        batchProgram
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
+  }
+};
 
 export const createBatchProgram = async (req, res) => {
   try {
@@ -63,17 +146,57 @@ export const createBatchProgram = async (req, res) => {
       regulationId
     });
 
+    try {
+      await Section.findOneAndUpdate(
+        {
+          name: 'UNALLOCATED',
+          batchProgramId: batchProgram._id
+        },
+        {
+          $setOnInsert: {
+            name: 'UNALLOCATED',
+            batchProgramId: batchProgram._id,
+            capacity: 300,
+            isActive: true
+          }
+        },
+        { upsert: true, new: true }
+      );
+    } catch (sectionError) {
+      await BatchProgram.findByIdAndDelete(batchProgram._id);
+      throw sectionError;
+    }
+
     const populated = await BatchProgram.findById(batchProgram._id)
       .populate('batchId', 'name startYear endYear')
-      .populate('departmentId', 'name code')
+      .populate('departmentId', 'name code program')
       .populate('regulationId', 'name startYear');
 
     return res.status(201).json({
       success: true,
-      message: 'BatchProgram created successfully',
+      message: 'BatchProgram and UNALLOCATED section created successfully',
       data: { batchProgram: populated }
     });
   } catch (error) {
+    if (
+      error.code === 11000 &&
+      (error.keyPattern?.batchId || error.keyPattern?.departmentId)
+    ) {
+      return res.status(409).json({
+        success: false,
+        message: 'This department is already mapped to this batch',
+        data: {}
+      });
+    }
+
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: 'Duplicate key conflict while creating related records',
+        data: {}
+      });
+    }
+
     return res.status(500).json({
       success: false,
       message: error.message,

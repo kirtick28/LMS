@@ -2,6 +2,7 @@ import express from 'express';
 import {
   createBatchProgram,
   getAllBatchPrograms,
+  getBatchProgramDetailsByParams,
   getBatchProgramById,
   updateBatchProgram,
   deleteBatchProgram
@@ -139,6 +140,62 @@ router.post('/', protect, authorize('ADMIN'), createBatchProgram);
  *         description: Unauthorized
  */
 router.get('/', protect, getAllBatchPrograms);
+
+/**
+ * @swagger
+ * /api/batch-programs/{batchId}/{departmentId}:
+ *   get:
+ *     summary: Get batch-program id and batch details by batch and department
+ *     tags: [BatchPrograms]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: batchId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: departmentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: BatchProgram id and batch details fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     batchProgramId:
+ *                       type: string
+ *                     batch:
+ *                       type: object
+ *                       properties:
+ *                         _id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         startYear:
+ *                           type: integer
+ *                         endYear:
+ *                           type: integer
+ *       400:
+ *         description: Missing or invalid path ids
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: BatchProgram not found
+ */
+router.get('/:batchId/:departmentId', protect, getBatchProgramDetailsByParams);
 
 /**
  * @swagger

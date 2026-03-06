@@ -205,6 +205,7 @@ export const addFaculty = async (req, res) => {
       password
     } = req.body;
 
+    console.log(req.body);
     if (!email || !firstName || !lastName || !employeeId || !primaryPhone) {
       return res.status(400).json({
         success: false,
@@ -511,7 +512,7 @@ export const uploadMultipleFaculty = async (req, res) => {
         if (!user && !faculty) {
           user = await User.create({
             email: payload.email,
-            password: payload.password || '123456',
+            password: payload.password || 'sece@123',
             role: 'FACULTY',
             gender: payload.gender || undefined,
             dateOfBirth: parseDateValue(payload.dateOfBirth) || undefined

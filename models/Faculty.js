@@ -119,12 +119,11 @@ facultySchema.virtual('fullName').get(function () {
   return `${this.firstName} ${this.lastName}`;
 });
 
-facultySchema.pre('validate', function (next) {
+facultySchema.pre('validate', function () {
   if (this.employmentStatus) {
     this.isActive = !['RESIGNED', 'RETIRED'].includes(this.employmentStatus);
     this.status = this.isActive ? 'active' : 'inactive';
   }
-  next();
 });
 
 facultySchema.set('toJSON', { virtuals: true });

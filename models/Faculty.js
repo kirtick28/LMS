@@ -74,6 +74,7 @@ const facultySchema = new mongoose.Schema(
     },
     workType: {
       type: String,
+      enum: ['Full Time', 'Contract', 'Part Time', 'Visiting'],
       trim: true
     },
     joiningDate: {

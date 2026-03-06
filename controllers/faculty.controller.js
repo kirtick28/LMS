@@ -4,187 +4,234 @@ import Faculty from '../models/Faculty.js';
 import User from '../models/User.js';
 import Department from '../models/Department.js';
 
-const normalizeKey = (key) =>
-  key.toString().trim().toLowerCase().replace(/\s+/g, '').replace(/[_-]/g, '');
+/**
+ * Helper class containing all reusable utility functions
+ */
+class FacultyHelper {
+  /**
+   * Normalize a key by removing spaces, underscores, hyphens and lowercasing
+   */
+  static normalizeKey(key) {
+    return key
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '')
+      .replace(/[_-]/g, '');
+  }
 
-const getNorm = (normalized, ...variants) => {
-  for (const variant of variants) {
-    if (
-      normalized[variant] !== undefined &&
-      normalized[variant] !== null &&
-      normalized[variant] !== ''
-    ) {
-      return normalized[variant];
+  /**
+   * Get first non‑empty variant from normalized object
+   */
+  static getNorm(normalized, ...variants) {
+    for (const variant of variants) {
+      if (
+        normalized[variant] !== undefined &&
+        normalized[variant] !== null &&
+        normalized[variant] !== ''
+      ) {
+        return normalized[variant];
+      }
     }
-  }
-  return undefined;
-};
-
-const clean = (value) =>
-  String(value || '')
-    .replace(/['"]+/g, '')
-    .trim();
-
-const normalizeCode = (value) => {
-  if (!value) return '';
-  return String(value)
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '')
-    .slice(0, 10);
-};
-
-const normalizePhone = (value) => {
-  if (!value) return null;
-  const digits = String(value).replace(/\D/g, '');
-  if (/^[0-9]{10}$/.test(digits)) return digits;
-  return null; // Return null if invalid instead of generating randoms for better data quality
-};
-
-const normalizeDesignation = (rawDesignation) => {
-  const cleaned = clean(rawDesignation) || 'Faculty';
-  const key = cleaned.toLowerCase().replace(/\s+/g, ' ').trim();
-
-  const map = {
-    professor: 'Professor',
-    'assistant professor': 'Assistant Professor',
-    'associate professor': 'Associate Professor',
-    hod: 'HOD',
-    dean: 'Dean',
-    faculty: 'Faculty',
-    'professor of practice': 'Professor of Practice',
-    'lab technician': 'Lab Technician',
-    'department secretary': 'Department Secretary',
-    'senior lab technician': 'Senior Lab Technician'
-  };
-
-  return map[key] || 'Faculty';
-};
-
-const parseDateValue = (value) => {
-  if (!value) return null;
-  if (value instanceof Date) return value;
-
-  if (typeof value === 'number') {
-    const serialDate = xlsx.SSF.parse_date_code(value);
-    if (!serialDate) return null;
-    return new Date(serialDate.y, serialDate.m - 1, serialDate.d);
+    return undefined;
   }
 
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-};
-
-const normalizeExcelRow = (row) => {
-  const normalized = {};
-
-  for (const [key, value] of Object.entries(row || {})) {
-    normalized[normalizeKey(key)] = value;
+  /**
+   * Clean a string: remove quotes, trim
+   */
+  static clean(value) {
+    return String(value || '')
+      .replace(/['"]+/g, '')
+      .trim();
   }
 
-  return {
-    email: clean(
-      getNorm(normalized, 'email', 'emailaddress', 'mail', 'mailid')
-    ).toLowerCase(),
-    password: clean(getNorm(normalized, 'password', 'pass')),
-    firstName: clean(getNorm(normalized, 'firstname', 'fname', 'name')),
-    lastName: clean(getNorm(normalized, 'lastname', 'lname', 'surname')),
-    primaryPhone: clean(
-      getNorm(
-        normalized,
-        'primaryphone',
-        'mobilenumber',
-        'mobile',
-        'phone',
-        'phone1'
-      )
-    ),
-    secondaryPhone: clean(
-      getNorm(
-        normalized,
-        'secondaryphone',
-        'alternatenumber',
-        'altphone',
-        'phone2',
-        'mobile2'
-      )
-    ),
-    employeeId: clean(
-      getNorm(normalized, 'employeeid', 'empid', 'employeecode')
-    ).toUpperCase(),
-    designation: getNorm(normalized, 'designation', 'role'),
-    departmentName: clean(
-      getNorm(normalized, 'departmentname', 'department', 'dept')
-    ),
-    departmentCode: clean(
-      getNorm(normalized, 'departmentcode', 'deptcode', 'code')
-    ),
-    qualification: clean(getNorm(normalized, 'qualification')),
-    workType: clean(getNorm(normalized, 'worktype', 'employmenttype')),
-    joiningDate: getNorm(normalized, 'joiningdate', 'doj'),
-    reportingManager: clean(
-      getNorm(normalized, 'reportingmanager', 'managerid')
-    ),
-    noticePeriod: clean(getNorm(normalized, 'noticeperiod')),
-    salutation: clean(getNorm(normalized, 'salutation')),
-    gender: clean(getNorm(normalized, 'gender')),
-    dateOfBirth: getNorm(normalized, 'dateofbirth', 'dob')
-  };
-};
+  /**
+   * Normalize a department code: uppercase, remove non‑alphanumeric, limit to 10 chars
+   */
+  static normalizeCode(value) {
+    if (!value) return '';
+    return String(value)
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+      .slice(0, 10);
+  }
 
-const resolveDepartment = async (payload) => {
-  const departmentId = clean(payload.departmentId);
+  /**
+   * Normalize a phone number: extract digits, ensure 10 digits, else null
+   */
+  static normalizePhone(value) {
+    if (!value) return null;
+    const digits = String(value).replace(/\D/g, '');
+    if (/^[0-9]{10}$/.test(digits)) return digits;
+    return null;
+  }
 
-  if (departmentId) {
-    if (!mongoose.Types.ObjectId.isValid(departmentId)) {
-      throw new Error('Invalid departmentId');
+  /**
+   * Normalize a designation string to one of the enum values
+   */
+  static normalizeDesignation(rawDesignation) {
+    const cleaned = FacultyHelper.clean(rawDesignation) || 'Faculty';
+    const key = cleaned.toLowerCase().replace(/\s+/g, ' ').trim();
+
+    const map = {
+      professor: 'Professor',
+      'assistant professor': 'Assistant Professor',
+      'associate professor': 'Associate Professor',
+      hod: 'HOD',
+      dean: 'Dean',
+      faculty: 'Faculty',
+      'professor of practice': 'Professor of Practice',
+      'lab technician': 'Lab Technician',
+      'department secretary': 'Department Secretary',
+      'senior lab technician': 'Senior Lab Technician'
+    };
+
+    return map[key] || 'Faculty';
+  }
+
+  /**
+   * Normalize workType to one of the enum values
+   */
+  static normalizeWorkType(rawWorkType) {
+    if (!rawWorkType) return undefined;
+    const cleaned = FacultyHelper.clean(rawWorkType);
+    const lower = cleaned.toLowerCase();
+    const map = {
+      'full time': 'Full Time',
+      fulltime: 'Full Time',
+      'full-time': 'Full Time',
+      'part time': 'Part Time',
+      parttime: 'Part Time',
+      'part-time': 'Part Time',
+      contract: 'Contract',
+      visiting: 'Visiting'
+    };
+    return map[lower] || undefined;
+  }
+
+  /**
+   * Parse a date from various formats (Excel serial, string, Date object)
+   */
+  static parseDateValue(value) {
+    if (!value) return null;
+    if (value instanceof Date) return value;
+
+    if (typeof value === 'number') {
+      const serialDate = xlsx.SSF.parse_date_code(value);
+      if (!serialDate) return null;
+      return new Date(serialDate.y, serialDate.m - 1, serialDate.d);
     }
 
-    const existing = await Department.findById(departmentId);
-    if (!existing) throw new Error('Invalid departmentId');
-    return existing;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
 
-  const departmentName = clean(payload.departmentName || payload.department);
-  const departmentCode = normalizeCode(payload.departmentCode || payload.code);
-
-  if (!departmentName) {
-    throw new Error('departmentId or departmentName is required');
+  /**
+   * Validate that a given ID is a valid ObjectId and that a department exists with that ID
+   */
+  static async validateDepartmentId(id, session = null) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw new Error('Invalid department ID format');
+    }
+    const query = Department.findById(id);
+    if (session) query.session(session);
+    const department = await query;
+    if (!department) {
+      throw new Error('Department not found');
+    }
+    return department;
   }
 
-  const existing = await Department.findOne({
-    $or: [
-      { name: departmentName },
-      ...(departmentCode ? [{ code: departmentCode }] : [])
-    ]
-  });
+  /**
+   * Normalize an entire Excel row into a consistent payload object
+   */
+  static normalizeExcelRow(row) {
+    const normalized = {};
 
-  if (existing) return existing;
+    for (const [key, value] of Object.entries(row || {})) {
+      normalized[FacultyHelper.normalizeKey(key)] = value;
+    }
 
-  return Department.create({
-    name: departmentName,
-    code: departmentCode || normalizeCode(departmentName),
-    program: 'B.E.',
-    isActive: true
-  });
-};
-
-const resolveDepartmentFromParam = async (departmentParam) => {
-  const cleaned = clean(departmentParam);
-
-  if (mongoose.Types.ObjectId.isValid(cleaned)) {
-    const byId = await Department.findById(cleaned);
-    if (byId) return byId;
+    return {
+      email: FacultyHelper.clean(
+        FacultyHelper.getNorm(
+          normalized,
+          'email',
+          'emailaddress',
+          'mail',
+          'mailid'
+        )
+      ).toLowerCase(),
+      password: FacultyHelper.clean(
+        FacultyHelper.getNorm(normalized, 'password', 'pass')
+      ),
+      firstName: FacultyHelper.clean(
+        FacultyHelper.getNorm(normalized, 'firstname', 'fname', 'name')
+      ),
+      lastName: FacultyHelper.clean(
+        FacultyHelper.getNorm(normalized, 'lastname', 'lname', 'surname')
+      ),
+      primaryPhone: FacultyHelper.clean(
+        FacultyHelper.getNorm(
+          normalized,
+          'primaryphone',
+          'mobilenumber',
+          'mobile',
+          'phone',
+          'phone1'
+        )
+      ),
+      secondaryPhone: FacultyHelper.clean(
+        FacultyHelper.getNorm(
+          normalized,
+          'secondaryphone',
+          'alternatenumber',
+          'altphone',
+          'phone2',
+          'mobile2'
+        )
+      ),
+      employeeId: FacultyHelper.clean(
+        FacultyHelper.getNorm(normalized, 'employeeid', 'empid', 'employeecode')
+      ).toUpperCase(),
+      designation: FacultyHelper.getNorm(normalized, 'designation', 'role'),
+      // For bulk upload we now expect departmentCode (not departmentId)
+      departmentCode: FacultyHelper.clean(
+        FacultyHelper.getNorm(
+          normalized,
+          'departmentcode',
+          'deptcode',
+          'code',
+          'department'
+        )
+      ),
+      qualification: FacultyHelper.clean(
+        FacultyHelper.getNorm(normalized, 'qualification')
+      ),
+      workType: FacultyHelper.clean(
+        FacultyHelper.getNorm(normalized, 'worktype', 'employmenttype')
+      ),
+      joiningDate: FacultyHelper.getNorm(normalized, 'joiningdate', 'doj'),
+      reportingManager: FacultyHelper.clean(
+        FacultyHelper.getNorm(normalized, 'reportingmanager', 'managerid')
+      ),
+      noticePeriod: FacultyHelper.clean(
+        FacultyHelper.getNorm(normalized, 'noticeperiod')
+      ),
+      salutation: FacultyHelper.clean(
+        FacultyHelper.getNorm(normalized, 'salutation')
+      ),
+      gender: FacultyHelper.clean(FacultyHelper.getNorm(normalized, 'gender')),
+      dateOfBirth: FacultyHelper.getNorm(normalized, 'dateofbirth', 'dob')
+    };
   }
+}
 
-  return Department.findOne({
-    $or: [
-      { name: { $regex: new RegExp(`^${cleaned}$`, 'i') } },
-      { code: { $regex: new RegExp(`^${cleaned}$`, 'i') } }
-    ]
-  });
-};
+// ==================== ENDPOINTS ====================
 
 export const addFaculty = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     const {
       salutation,
@@ -202,36 +249,59 @@ export const addFaculty = async (req, res) => {
       designation,
       reportingManager,
       noticePeriod,
-      password
+      password,
+      departmentId // directly from body
     } = req.body;
 
-    console.log(req.body);
-    if (!email || !firstName || !lastName || !employeeId || !primaryPhone) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'email, firstName, lastName, employeeId and primaryPhone are required',
-        data: {}
-      });
+    // Required fields validation
+    const requiredFields = [
+      'salutation',
+      'firstName',
+      'lastName',
+      'gender',
+      'dateOfBirth',
+      'email',
+      'primaryPhone',
+      'qualification',
+      'workType',
+      'employeeId',
+      'joiningDate',
+      'designation',
+      'departmentId'
+    ];
+    for (const field of requiredFields) {
+      if (!req.body[field]) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({
+          success: false,
+          message: `${field} is required`,
+          data: {}
+        });
+      }
     }
 
-    const cleanEmail = clean(email).toLowerCase();
-    const cleanEmployeeId = clean(employeeId).toUpperCase();
+    const cleanEmail = FacultyHelper.clean(email).toLowerCase();
+    const cleanEmployeeId = FacultyHelper.clean(employeeId).toUpperCase();
 
+    // Check for existing user / faculty within session
     const [existingUser, existingEmployee] = await Promise.all([
-      User.findOne({ email: cleanEmail }),
-      Faculty.findOne({ employeeId: cleanEmployeeId })
+      User.findOne({ email: cleanEmail }).session(session),
+      Faculty.findOne({ employeeId: cleanEmployeeId }).session(session)
     ]);
 
     if (existingUser) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({
         success: false,
         message: 'User already exists with this email',
         data: {}
       });
     }
-
     if (existingEmployee) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({
         success: false,
         message: 'Faculty already exists with this employeeId',
@@ -239,39 +309,103 @@ export const addFaculty = async (req, res) => {
       });
     }
 
-    const department = await resolveDepartment(req.body);
+    // Validate department
+    const department = await FacultyHelper.validateDepartmentId(
+      departmentId,
+      session
+    );
 
-    const user = await User.create({
-      email: cleanEmail,
-      password: password || '123456',
-      role: 'FACULTY',
-      gender,
-      dateOfBirth: parseDateValue(dateOfBirth) || undefined
-    });
+    // Parse dates
+    const parsedDOB = FacultyHelper.parseDateValue(dateOfBirth);
+    const parsedJoining = FacultyHelper.parseDateValue(joiningDate);
+    if (!parsedDOB || !parsedJoining) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid date format for dateOfBirth or joiningDate',
+        data: {}
+      });
+    }
 
-    const faculty = await Faculty.create({
-      userId: user._id,
-      departmentId: department._id,
-      salutation,
-      firstName: clean(firstName),
-      lastName: clean(lastName),
-      primaryPhone: normalizePhone(primaryPhone),
-      secondaryPhone: normalizePhone(secondaryPhone) || null,
-      employeeId: cleanEmployeeId,
-      designation: normalizeDesignation(designation),
-      qualification,
-      workType,
-      joiningDate: parseDateValue(joiningDate),
-      reportingManager: reportingManager || null,
-      noticePeriod
-    });
+    // Normalize phone numbers
+    const normPrimaryPhone = FacultyHelper.normalizePhone(primaryPhone);
+    if (!normPrimaryPhone) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: 'primaryPhone must be a valid 10-digit number',
+        data: {}
+      });
+    }
+    const normSecondaryPhone =
+      FacultyHelper.normalizePhone(secondaryPhone) || null;
+
+    // Normalize designation
+    const normDesignation = FacultyHelper.normalizeDesignation(designation);
+
+    // Validate workType against enum
+    const validWorkTypes = ['Full Time', 'Contract', 'Part Time', 'Visiting'];
+    const normWorkType = FacultyHelper.normalizeWorkType(workType);
+    if (!normWorkType || !validWorkTypes.includes(normWorkType)) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: `workType must be one of: ${validWorkTypes.join(', ')}`,
+        data: {}
+      });
+    }
+
+    // Create user
+    const [user] = await User.create(
+      [
+        {
+          email: cleanEmail,
+          password: password || 'sece@123',
+          role: 'FACULTY',
+          gender,
+          dateOfBirth: parsedDOB
+        }
+      ],
+      { session }
+    );
+
+    // Create faculty
+    const [faculty] = await Faculty.create(
+      [
+        {
+          userId: user._id,
+          departmentId: department._id,
+          salutation: FacultyHelper.clean(salutation),
+          firstName: FacultyHelper.clean(firstName),
+          lastName: FacultyHelper.clean(lastName),
+          primaryPhone: normPrimaryPhone,
+          secondaryPhone: normSecondaryPhone,
+          employeeId: cleanEmployeeId,
+          designation: normDesignation,
+          qualification: FacultyHelper.clean(qualification),
+          workType: normWorkType,
+          joiningDate: parsedJoining,
+          reportingManager: reportingManager || null,
+          noticePeriod: FacultyHelper.clean(noticePeriod) || undefined
+        }
+      ],
+      { session }
+    );
+
+    await session.commitTransaction();
+    session.endSession();
 
     return res.status(201).json({
       success: true,
-      message: 'Faculty created successfully',
+      message: 'Faculty and User created successfully',
       data: { faculty }
     });
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
     return res.status(500).json({
       success: false,
       message: error.message,
@@ -293,7 +427,6 @@ export const updateFaculty = async (req, res) => {
     }
 
     const faculty = await Faculty.findById(id);
-
     if (!faculty) {
       return res.status(404).json({
         success: false,
@@ -303,7 +436,6 @@ export const updateFaculty = async (req, res) => {
     }
 
     const user = await User.findById(faculty.userId).select('+password');
-
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -312,14 +444,13 @@ export const updateFaculty = async (req, res) => {
       });
     }
 
-    if (req.body.email) {
-      const updatedEmail = clean(req.body.email).toLowerCase();
-
+    // Handle email update
+    if (req.body.email !== undefined) {
+      const updatedEmail = FacultyHelper.clean(req.body.email).toLowerCase();
       const duplicateEmail = await User.findOne({
         email: updatedEmail,
         _id: { $ne: user._id }
       });
-
       if (duplicateEmail) {
         return res.status(400).json({
           success: false,
@@ -327,53 +458,68 @@ export const updateFaculty = async (req, res) => {
           data: {}
         });
       }
-
       user.email = updatedEmail;
     }
 
+    // Handle user fields
     if (req.body.password) user.password = req.body.password;
     if (req.body.gender !== undefined) user.gender = req.body.gender;
-
     if (req.body.dateOfBirth !== undefined) {
-      user.dateOfBirth = parseDateValue(req.body.dateOfBirth);
+      const parsed = FacultyHelper.parseDateValue(req.body.dateOfBirth);
+      if (!parsed) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid dateOfBirth format',
+          data: {}
+        });
+      }
+      user.dateOfBirth = parsed;
     }
-
     if (req.body.isActive !== undefined) {
       user.isActive = !!req.body.isActive;
     }
 
-    const fields = [
+    // Handle faculty simple fields
+    const simpleFields = [
       'salutation',
       'firstName',
       'lastName',
       'qualification',
-      'workType',
       'noticePeriod',
       'employmentStatus'
     ];
-
-    fields.forEach((field) => {
+    simpleFields.forEach((field) => {
       if (req.body[field] !== undefined) {
-        faculty[field] = req.body[field];
+        faculty[field] = FacultyHelper.clean(req.body[field]);
       }
     });
 
+    // Handle phone numbers
     if (req.body.primaryPhone !== undefined) {
-      faculty.primaryPhone = normalizePhone(req.body.primaryPhone);
+      const norm = FacultyHelper.normalizePhone(req.body.primaryPhone);
+      if (!norm) {
+        return res.status(400).json({
+          success: false,
+          message: 'primaryPhone must be a valid 10-digit number',
+          data: {}
+        });
+      }
+      faculty.primaryPhone = norm;
     }
-
     if (req.body.secondaryPhone !== undefined) {
-      faculty.secondaryPhone = normalizePhone(req.body.secondaryPhone) || null;
+      faculty.secondaryPhone =
+        FacultyHelper.normalizePhone(req.body.secondaryPhone) || null;
     }
 
+    // Handle employeeId
     if (req.body.employeeId !== undefined) {
-      const nextEmployeeId = clean(req.body.employeeId).toUpperCase();
-
+      const nextEmployeeId = FacultyHelper.clean(
+        req.body.employeeId
+      ).toUpperCase();
       const duplicateEmployee = await Faculty.findOne({
         employeeId: nextEmployeeId,
         _id: { $ne: faculty._id }
       });
-
       if (duplicateEmployee) {
         return res.status(400).json({
           success: false,
@@ -381,28 +527,53 @@ export const updateFaculty = async (req, res) => {
           data: {}
         });
       }
-
       faculty.employeeId = nextEmployeeId;
     }
 
+    // Handle designation
     if (req.body.designation !== undefined) {
-      faculty.designation = normalizeDesignation(req.body.designation);
+      faculty.designation = FacultyHelper.normalizeDesignation(
+        req.body.designation
+      );
     }
 
+    // Handle workType
+    if (req.body.workType !== undefined) {
+      const validWorkTypes = ['Full Time', 'Contract', 'Part Time', 'Visiting'];
+      const normWorkType = FacultyHelper.normalizeWorkType(req.body.workType);
+      if (!normWorkType || !validWorkTypes.includes(normWorkType)) {
+        return res.status(400).json({
+          success: false,
+          message: `workType must be one of: ${validWorkTypes.join(', ')}`,
+          data: {}
+        });
+      }
+      faculty.workType = normWorkType;
+    }
+
+    // Handle joiningDate
     if (req.body.joiningDate !== undefined) {
-      faculty.joiningDate = parseDateValue(req.body.joiningDate);
+      const parsed = FacultyHelper.parseDateValue(req.body.joiningDate);
+      if (!parsed) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid joiningDate format',
+          data: {}
+        });
+      }
+      faculty.joiningDate = parsed;
     }
 
+    // Handle reportingManager
     if (req.body.reportingManager !== undefined) {
       faculty.reportingManager = req.body.reportingManager || null;
     }
 
-    if (
-      req.body.departmentId !== undefined ||
-      req.body.departmentName !== undefined ||
-      req.body.department !== undefined
-    ) {
-      const department = await resolveDepartment(req.body);
+    // Handle department update
+    if (req.body.departmentId !== undefined) {
+      const department = await FacultyHelper.validateDepartmentId(
+        req.body.departmentId
+      );
       faculty.departmentId = department._id;
     }
 
@@ -435,7 +606,6 @@ export const deleteFaculty = async (req, res) => {
     }
 
     const faculty = await Faculty.findById(id);
-
     if (!faculty) {
       return res.status(404).json({
         success: false,
@@ -464,6 +634,7 @@ export const deleteFaculty = async (req, res) => {
 };
 
 export const uploadMultipleFaculty = async (req, res) => {
+  let session;
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -473,12 +644,24 @@ export const uploadMultipleFaculty = async (req, res) => {
       });
     }
 
+    // Read workbook
     const workbook = req.file.buffer
       ? xlsx.read(req.file.buffer, { type: 'buffer' })
       : xlsx.readFile(req.file.path);
 
     const sheetName = workbook.SheetNames[0];
     const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+    // Start transaction
+    session = await mongoose.startSession();
+    session.startTransaction();
+
+    // Pre‑fetch departments within the transaction
+    const departments = await Department.find({}).session(session);
+    const deptMap = new Map();
+    departments.forEach((dept) => {
+      deptMap.set(dept.code, dept._id);
+    });
 
     let usersCreated = 0;
     let usersUpdated = 0;
@@ -487,138 +670,254 @@ export const uploadMultipleFaculty = async (req, res) => {
     const failedRows = [];
 
     for (let index = 0; index < rows.length; index++) {
-      const rowNumber = index + 2;
-
+      const rowNumber = index + 2; // Excel rows are 1‑based plus header
       try {
-        const payload = normalizeExcelRow(rows[index]);
+        const payload = FacultyHelper.normalizeExcelRow(rows[index]);
 
-        if (
-          !payload.email ||
-          !payload.firstName ||
-          !payload.lastName ||
-          !payload.employeeId ||
-          !payload.primaryPhone
-        ) {
+        // ----- Required field validation -----
+        const requiredFields = [
+          'email',
+          'firstName',
+          'lastName',
+          'employeeId',
+          'primaryPhone',
+          'departmentCode',
+          'salutation',
+          'gender',
+          'dateOfBirth',
+          'joiningDate',
+          'qualification',
+          'designation',
+          'workType'
+        ];
+        for (const field of requiredFields) {
+          if (!payload[field] || payload[field].trim() === '') {
+            throw new Error(`${field} is required`);
+          }
+        }
+
+        // ----- Department validation -----
+        const departmentCode = payload.departmentCode.toUpperCase().trim();
+        const departmentId = deptMap.get(departmentCode);
+        if (!departmentId) {
+          throw new Error(`Department code "${departmentCode}" not found`);
+        }
+
+        // ----- Phone validation -----
+        const primaryPhone = FacultyHelper.normalizePhone(payload.primaryPhone);
+        if (!primaryPhone) {
+          throw new Error('primaryPhone must be a valid 10-digit number');
+        }
+        const secondaryPhone =
+          FacultyHelper.normalizePhone(payload.secondaryPhone) || null;
+
+        // ----- Date validation -----
+        const dateOfBirth = FacultyHelper.parseDateValue(payload.dateOfBirth);
+        if (!dateOfBirth) {
+          throw new Error('dateOfBirth must be a valid date');
+        }
+        const joiningDate = FacultyHelper.parseDateValue(payload.joiningDate);
+        if (!joiningDate) {
+          throw new Error('joiningDate must be a valid date');
+        }
+
+        // ----- Designation validation -----
+        const designation = FacultyHelper.normalizeDesignation(
+          payload.designation
+        );
+        const validDesignations = [
+          'Professor',
+          'Associate Professor',
+          'Assistant Professor',
+          'HOD',
+          'Dean',
+          'Faculty',
+          'Professor of Practice',
+          'Lab Technician',
+          'Senior Lab Technician',
+          'Department Secretary'
+        ];
+        if (!validDesignations.includes(designation)) {
+          throw new Error(`designation "${payload.designation}" is not valid`);
+        }
+
+        // ----- WorkType validation -----
+        const validWorkTypes = [
+          'Full Time',
+          'Contract',
+          'Part Time',
+          'Visiting'
+        ];
+        const workType = FacultyHelper.normalizeWorkType(payload.workType);
+        if (!workType || !validWorkTypes.includes(workType)) {
           throw new Error(
-            'email, firstName, lastName, employeeId and primaryPhone are required'
+            `workType must be one of: ${validWorkTypes.join(', ')}`
           );
         }
 
-        const department = await resolveDepartment(payload);
+        // ----- Clean values -----
+        const cleanEmail = payload.email.toLowerCase().trim();
+        const cleanEmployeeId = payload.employeeId.toUpperCase().trim();
+        const firstName = payload.firstName.trim();
+        const lastName = payload.lastName.trim();
+        const salutation = payload.salutation.trim();
+        const gender = payload.gender.trim();
+        const qualification = payload.qualification.trim();
+        const noticePeriod = payload.noticePeriod
+          ? payload.noticePeriod.trim()
+          : undefined;
+        const reportingManager = payload.reportingManager
+          ? payload.reportingManager.trim()
+          : null;
 
-        let user = await User.findOne({ email: payload.email });
-        let faculty = await Faculty.findOne({ employeeId: payload.employeeId });
+        // ----- Find or create user/faculty within transaction -----
+        let user = await User.findOne({ email: cleanEmail }).session(session);
+        let faculty = await Faculty.findOne({
+          employeeId: cleanEmployeeId
+        }).session(session);
 
+        // Case 1: Neither user nor faculty exists → create both
         if (!user && !faculty) {
-          user = await User.create({
-            email: payload.email,
-            password: payload.password || 'sece@123',
-            role: 'FACULTY',
-            gender: payload.gender || undefined,
-            dateOfBirth: parseDateValue(payload.dateOfBirth) || undefined
-          });
+          const [newUser] = await User.create(
+            [
+              {
+                email: cleanEmail,
+                password: payload.password || 'sece@123',
+                role: 'FACULTY',
+                gender,
+                dateOfBirth
+              }
+            ],
+            { session }
+          );
+          user = newUser;
           usersCreated++;
 
-          faculty = await Faculty.create({
-            userId: user._id,
-            departmentId: department._id,
-            salutation: payload.salutation || undefined,
-            firstName: payload.firstName,
-            lastName: payload.lastName,
-            primaryPhone: normalizePhone(payload.primaryPhone),
-            secondaryPhone: normalizePhone(payload.secondaryPhone) || null,
-            employeeId: payload.employeeId,
-            designation: normalizeDesignation(payload.designation),
-            qualification: payload.qualification || undefined,
-            workType: payload.workType || undefined,
-            joiningDate: parseDateValue(payload.joiningDate) || undefined,
-            reportingManager: payload.reportingManager || null,
-            noticePeriod: payload.noticePeriod || undefined
-          });
+          const [newFaculty] = await Faculty.create(
+            [
+              {
+                userId: user._id,
+                departmentId,
+                salutation,
+                firstName,
+                lastName,
+                primaryPhone,
+                secondaryPhone,
+                employeeId: cleanEmployeeId,
+                designation,
+                qualification,
+                workType,
+                joiningDate,
+                reportingManager,
+                noticePeriod
+              }
+            ],
+            { session }
+          );
+          faculty = newFaculty;
           facultyCreated++;
-
-          continue;
         }
-
-        if (!user && faculty) {
-          user = await User.create({
-            email: payload.email,
-            password: payload.password || '123456',
-            role: 'FACULTY',
-            gender: payload.gender || undefined,
-            dateOfBirth: parseDateValue(payload.dateOfBirth) || undefined
-          });
+        // Case 2: Faculty exists but user doesn't (inconsistent) → create user and link
+        else if (!user && faculty) {
+          const [newUser] = await User.create(
+            [
+              {
+                email: cleanEmail,
+                password: payload.password || '123456',
+                role: 'FACULTY',
+                gender,
+                dateOfBirth
+              }
+            ],
+            { session }
+          );
+          user = newUser;
           usersCreated++;
 
           faculty.userId = user._id;
-        } else if (user) {
-          user.gender = payload.gender || user.gender;
-          const parsedDob = parseDateValue(payload.dateOfBirth);
-          if (parsedDob) user.dateOfBirth = parsedDob;
+          faculty.departmentId = departmentId;
+          faculty.salutation = salutation;
+          faculty.firstName = firstName;
+          faculty.lastName = lastName;
+          faculty.primaryPhone = primaryPhone;
+          faculty.secondaryPhone = secondaryPhone;
+          faculty.employeeId = cleanEmployeeId;
+          faculty.designation = designation;
+          faculty.qualification = qualification;
+          faculty.workType = workType;
+          faculty.joiningDate = joiningDate;
+          faculty.reportingManager = reportingManager;
+          faculty.noticePeriod = noticePeriod;
+          await faculty.save({ session });
+          facultyUpdated++;
+        }
+        // Case 3: User exists
+        else if (user) {
+          // Update user fields
+          user.gender = gender;
+          user.dateOfBirth = dateOfBirth;
           if (user.role !== 'FACULTY') {
             user.role = 'FACULTY';
           }
+          await user.save({ session });
           usersUpdated++;
 
+          // Find or create faculty for this user
           if (!faculty) {
-            faculty = await Faculty.findOne({ userId: user._id });
-          }
-        }
-
-        if (faculty) {
-          faculty.departmentId = department._id;
-          faculty.salutation = payload.salutation || faculty.salutation;
-          faculty.firstName = payload.firstName || faculty.firstName;
-          faculty.lastName = payload.lastName || faculty.lastName;
-          faculty.primaryPhone = normalizePhone(
-            payload.primaryPhone || faculty.primaryPhone
-          );
-          faculty.secondaryPhone =
-            normalizePhone(payload.secondaryPhone) || faculty.secondaryPhone;
-          faculty.employeeId = payload.employeeId || faculty.employeeId;
-          faculty.designation = normalizeDesignation(
-            payload.designation || faculty.designation
-          );
-          faculty.qualification =
-            payload.qualification || faculty.qualification;
-          faculty.workType = payload.workType || faculty.workType;
-          faculty.noticePeriod = payload.noticePeriod || faculty.noticePeriod;
-
-          const parsedJoining = parseDateValue(payload.joiningDate);
-          if (parsedJoining) faculty.joiningDate = parsedJoining;
-
-          if (payload.reportingManager !== undefined) {
-            faculty.reportingManager = payload.reportingManager || null;
+            faculty = await Faculty.findOne({ userId: user._id }).session(
+              session
+            );
           }
 
-          if (faculty.isNew) {
-            facultyCreated++;
+          if (faculty) {
+            // Update existing faculty
+            faculty.departmentId = departmentId;
+            faculty.salutation = salutation;
+            faculty.firstName = firstName;
+            faculty.lastName = lastName;
+            faculty.primaryPhone = primaryPhone;
+            faculty.secondaryPhone = secondaryPhone;
+            faculty.employeeId = cleanEmployeeId;
+            faculty.designation = designation;
+            faculty.qualification = qualification;
+            faculty.workType = workType;
+            faculty.joiningDate = joiningDate;
+            faculty.reportingManager = reportingManager;
+            faculty.noticePeriod = noticePeriod;
+            await faculty.save({ session });
+
+            if (faculty.isNew) {
+              facultyCreated++;
+            } else {
+              facultyUpdated++;
+            }
           } else {
-            facultyUpdated++;
+            // Create new faculty for existing user
+            const [newFaculty] = await Faculty.create(
+              [
+                {
+                  userId: user._id,
+                  departmentId,
+                  salutation,
+                  firstName,
+                  lastName,
+                  primaryPhone,
+                  secondaryPhone,
+                  employeeId: cleanEmployeeId,
+                  designation,
+                  qualification,
+                  workType,
+                  joiningDate,
+                  reportingManager,
+                  noticePeriod
+                }
+              ],
+              { session }
+            );
+            faculty = newFaculty;
+            facultyCreated++;
           }
-
-          await faculty.save();
-        } else {
-          faculty = await Faculty.create({
-            userId: user._id,
-            departmentId: department._id,
-            salutation: payload.salutation || undefined,
-            firstName: payload.firstName,
-            lastName: payload.lastName,
-            primaryPhone: normalizePhone(payload.primaryPhone),
-            secondaryPhone: normalizePhone(payload.secondaryPhone) || null,
-            employeeId: payload.employeeId,
-            designation: normalizeDesignation(payload.designation),
-            qualification: payload.qualification || undefined,
-            workType: payload.workType || undefined,
-            joiningDate: parseDateValue(payload.joiningDate) || undefined,
-            reportingManager: payload.reportingManager || null,
-            noticePeriod: payload.noticePeriod || undefined
-          });
-          facultyCreated++;
         }
-
-        await user.save();
       } catch (error) {
         failedRows.push({
           row: rowNumber,
@@ -627,19 +926,44 @@ export const uploadMultipleFaculty = async (req, res) => {
       }
     }
 
-    return res.json({
-      success: true,
-      message: 'Faculty upload sync completed',
-      data: {
-        usersCreated,
-        usersUpdated,
-        facultyCreated,
-        facultyUpdated,
-        failedCount: failedRows.length,
-        failedRows
-      }
-    });
+    // Decide commit or abort based on errors
+    if (failedRows.length > 0) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message:
+          'Bulk upload failed due to errors in some rows. No changes were saved.',
+        data: {
+          usersCreated: 0,
+          usersUpdated: 0,
+          facultyCreated: 0,
+          facultyUpdated: 0,
+          failedCount: failedRows.length,
+          failedRows
+        }
+      });
+    } else {
+      await session.commitTransaction();
+      session.endSession();
+      return res.json({
+        success: true,
+        message: 'Faculty upload sync completed successfully',
+        data: {
+          usersCreated,
+          usersUpdated,
+          facultyCreated,
+          facultyUpdated,
+          failedCount: 0,
+          failedRows: []
+        }
+      });
+    }
   } catch (error) {
+    if (session) {
+      await session.abortTransaction();
+      session.endSession();
+    }
     return res.status(500).json({
       success: false,
       message: error.message,
@@ -651,7 +975,6 @@ export const uploadMultipleFaculty = async (req, res) => {
 export const getAllFaculty = async (req, res) => {
   try {
     const { departmentId, designation, employmentStatus } = req.query;
-
     const filter = {};
 
     if (departmentId) {
@@ -742,9 +1065,18 @@ export const getDepartmentWise = async (req, res) => {
 
 export const getDepartmentWiseFaculty = async (req, res) => {
   try {
-    const department = await resolveDepartmentFromParam(req.params.department);
+    const { department } = req.params; // expecting department ID
 
-    if (!department) {
+    if (!mongoose.Types.ObjectId.isValid(department)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid department ID format',
+        data: {}
+      });
+    }
+
+    const dept = await Department.findById(department);
+    if (!dept) {
       return res.status(404).json({
         success: false,
         message: 'Department not found',
@@ -753,7 +1085,7 @@ export const getDepartmentWiseFaculty = async (req, res) => {
     }
 
     const rows = await Faculty.aggregate([
-      { $match: { departmentId: department._id } },
+      { $match: { departmentId: dept._id } },
       {
         $group: {
           _id: '$designation',
@@ -777,7 +1109,6 @@ export const getDepartmentWiseFaculty = async (req, res) => {
 
     rows.forEach((row) => {
       const key = String(row._id || '').toLowerCase();
-
       if (key.includes('dean') || key.includes('hod')) {
         categorySummary.deansAndHods += row.count;
       } else if (key === 'professor') {
@@ -794,9 +1125,9 @@ export const getDepartmentWiseFaculty = async (req, res) => {
       message: 'Department wise faculty summary retrieved successfully',
       data: {
         department: {
-          _id: department._id,
-          name: department.name,
-          code: department.code
+          _id: dept._id,
+          name: dept.name,
+          code: dept.code
         },
         total: rows.reduce((sum, row) => sum + row.count, 0),
         designationSummary,
@@ -814,9 +1145,18 @@ export const getDepartmentWiseFaculty = async (req, res) => {
 
 export const getDepartmentWiseFacultyList = async (req, res) => {
   try {
-    const department = await resolveDepartmentFromParam(req.params.department);
+    const { department } = req.params; // expecting department ID
 
-    if (!department) {
+    if (!mongoose.Types.ObjectId.isValid(department)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid department ID format',
+        data: {}
+      });
+    }
+
+    const dept = await Department.findById(department);
+    if (!dept) {
       return res.status(404).json({
         success: false,
         message: 'Department not found',
@@ -824,7 +1164,7 @@ export const getDepartmentWiseFacultyList = async (req, res) => {
       });
     }
 
-    const faculty = await Faculty.find({ departmentId: department._id })
+    const faculty = await Faculty.find({ departmentId: dept._id })
       .sort({ firstName: 1, lastName: 1 })
       .populate('userId', 'email role isActive gender dateOfBirth')
       .populate('departmentId', 'name code');

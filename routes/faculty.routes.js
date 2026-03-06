@@ -30,11 +30,18 @@ const upload = multer({ storage: multer.memoryStorage() });
  *     FacultyInput:
  *       type: object
  *       required:
- *         - email
+ *         - salutation
  *         - firstName
  *         - lastName
- *         - employeeId
+ *         - gender
+ *         - dateOfBirth
+ *         - email
  *         - primaryPhone
+ *         - qualification
+ *         - workType
+ *         - employeeId
+ *         - joiningDate
+ *         - designation
  *         - departmentId
  *       properties:
  *         salutation:
@@ -46,13 +53,6 @@ const upload = multer({ storage: multer.memoryStorage() });
  *         lastName:
  *           type: string
  *           example: Nair
- *         email:
- *           type: string
- *           example: meera.nair@college.edu
- *         password:
- *           type: string
- *           description: Defaults to 123456 when omitted.
- *           example: SecurePass@123
  *         gender:
  *           type: string
  *           example: Female
@@ -60,6 +60,13 @@ const upload = multer({ storage: multer.memoryStorage() });
  *           type: string
  *           format: date
  *           example: 1988-07-24
+ *         email:
+ *           type: string
+ *           example: meera.nair@college.edu
+ *         password:
+ *           type: string
+ *           description: Defaults to 'sece@123' when omitted.
+ *           example: SecurePass@123
  *         primaryPhone:
  *           type: string
  *           description: 10-digit mobile number.
@@ -69,13 +76,20 @@ const upload = multer({ storage: multer.memoryStorage() });
  *           nullable: true
  *           description: Optional 10-digit mobile number.
  *           example: '9123456780'
+ *         qualification:
+ *           type: string
+ *           example: M.E. Computer Science
+ *         workType:
+ *           type: string
+ *           enum: [Full Time, Contract, Part Time, Visiting]
+ *           example: Full Time
  *         employeeId:
  *           type: string
  *           example: FAC1024
- *         departmentId:
+ *         joiningDate:
  *           type: string
- *           description: MongoDB ObjectId of Department.
- *           example: 65f0425db4d5f9a7d9e1134a
+ *           format: date
+ *           example: 2021-06-10
  *         designation:
  *           type: string
  *           enum:
@@ -90,16 +104,10 @@ const upload = multer({ storage: multer.memoryStorage() });
  *             - Senior Lab Technician
  *             - Department Secretary
  *           example: Assistant Professor
- *         qualification:
+ *         departmentId:
  *           type: string
- *           example: M.E. Computer Science
- *         workType:
- *           type: string
- *           example: Full Time
- *         joiningDate:
- *           type: string
- *           format: date
- *           example: 2021-06-10
+ *           description: MongoDB ObjectId of Department.
+ *           example: 65f0425db4d5f9a7d9e1134a
  *         reportingManager:
  *           type: string
  *           nullable: true
@@ -157,7 +165,7 @@ const upload = multer({ storage: multer.memoryStorage() });
  *           example: true
  *         message:
  *           type: string
- *           example: Faculty created successfully
+ *           example: Faculty and User created successfully
  *         data:
  *           type: object
  *           properties:
@@ -189,7 +197,7 @@ const upload = multer({ storage: multer.memoryStorage() });
  *           example: true
  *         message:
  *           type: string
- *           example: Faculty upload sync completed
+ *           example: Faculty upload sync completed successfully
  *         data:
  *           type: object
  *           properties:
@@ -218,7 +226,7 @@ const upload = multer({ storage: multer.memoryStorage() });
  *                     example: 5
  *                   message:
  *                     type: string
- *                     example: email, firstName, lastName, employeeId and primaryPhone are required
+ *                     example: email, firstName, lastName, employeeId, primaryPhone and departmentCode are required
  *
  *     FacultyDashboardStatsResponse:
  *       type: object
@@ -363,6 +371,10 @@ const upload = multer({ storage: multer.memoryStorage() });
  *     description: |
  *       Creates both `User` (role FACULTY) and `Faculty` records.
  *
+ *       **Required fields:** salutation, firstName, lastName, gender, dateOfBirth,
+ *       email, primaryPhone, qualification, workType, employeeId, joiningDate,
+ *       designation, departmentId.
+ *
  *       **Access:** ADMIN only
  *     security:
  *       - bearerAuth: []
@@ -403,7 +415,13 @@ router.post('/', protect, authorize('ADMIN'), addFaculty);
  *     description: |
  *       Uploads an Excel file and syncs users/faculty data in bulk.
  *
- *       Required row-level fields: `email`, `firstName`, `lastName`, `employeeId`, `primaryPhone`, `departmentId`.
+ *       **Required columns in Excel:**
+ *       `email`, `firstName`, `lastName`, `employeeId`, `primaryPhone`, `departmentCode`,
+ *       `salutation`, `gender`, `dateOfBirth`, `joiningDate`, `qualification`,
+ *       `designation`, `workType`.
+ *
+ *       `departmentCode` must match an existing department code in the database.
+ *       All operations are atomic: if any row fails, no changes are saved.
  *
  *       **Access:** ADMIN only
  *     security:
@@ -423,7 +441,7 @@ router.post('/', protect, authorize('ADMIN'), addFaculty);
  *                 description: Excel file (.xlsx/.xls)
  *     responses:
  *       200:
- *         description: Faculty upload sync completed
+ *         description: Faculty upload sync completed successfully
  *         content:
  *           application/json:
  *             schema:
@@ -459,7 +477,7 @@ router.post(
  *       Updates faculty and linked user data.
  *
  *       Updatable fields include `departmentId`, `primaryPhone`, `secondaryPhone`,
- *       `designation`, `employmentStatus`, and basic profile details.
+ *       `designation`, `workType`, `employmentStatus`, and basic profile details.
  *
  *       **Access:** ADMIN only
  *     security:
@@ -522,6 +540,7 @@ router.post(
  *                 type: string
  *               workType:
  *                 type: string
+ *                 enum: [Full Time, Contract, Part Time, Visiting]
  *               joiningDate:
  *                 type: string
  *                 format: date

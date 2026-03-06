@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
 /* ============================
    CREATE DEPARTMENT
 ============================ */
-export const createDepartment = async (req, res) => {
+export const createDepartment = async (req, res, next) => {
   try {
     const { name, code, program, isActive } = req.body;
 
@@ -46,18 +46,14 @@ export const createDepartment = async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: null
-    });
+    return next(error);
   }
 };
 
 /* ============================
    GET ALL DEPARTMENTS
 ============================ */
-export const getAllDepartments = async (req, res) => {
+export const getAllDepartments = async (req, res, next) => {
   try {
     const { isActive } = req.query;
 
@@ -76,18 +72,14 @@ export const getAllDepartments = async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: null
-    });
+    return next(error);
   }
 };
 
 /* ============================
    GET DEPARTMENT BY ID
 ============================ */
-export const getDepartmentById = async (req, res) => {
+export const getDepartmentById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -116,18 +108,14 @@ export const getDepartmentById = async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: null
-    });
+    return next(error);
   }
 };
 
 /* ============================
    UPDATE DEPARTMENT
 ============================ */
-export const updateDepartment = async (req, res) => {
+export const updateDepartment = async (req, res, next) => {
   try {
     const { id } = req.params;
     const updates = { ...req.body };
@@ -197,18 +185,14 @@ export const updateDepartment = async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: null
-    });
+    return next(error);
   }
 };
 
 /* ============================
    DELETE DEPARTMENT
 ============================ */
-export const deleteDepartment = async (req, res) => {
+export const deleteDepartment = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -238,10 +222,6 @@ export const deleteDepartment = async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: null
-    });
+    return next(error);
   }
 };

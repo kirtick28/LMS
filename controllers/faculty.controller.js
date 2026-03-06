@@ -3,6 +3,7 @@ import xlsx from 'xlsx';
 import Faculty from '../models/Faculty.js';
 import User from '../models/User.js';
 import Department from '../models/Department.js';
+import AppError from '../utils/AppError.js';
 
 /**
  * Helper class containing all reusable utility functions
@@ -227,9 +228,34 @@ class FacultyHelper {
   }
 }
 
+const flattenFacultyUserIsActive = (facultyDoc) => {
+  const faculty = facultyDoc.toObject
+    ? facultyDoc.toObject()
+    : { ...facultyDoc };
+
+  if (!faculty.userId || typeof faculty.userId !== 'object') {
+    return {
+      ...faculty,
+      isActive: false
+    };
+  }
+
+  const user = faculty.userId.toObject
+    ? faculty.userId.toObject()
+    : { ...faculty.userId };
+  const isActive = !!user.isActive;
+  delete user.isActive;
+
+  return {
+    ...faculty,
+    userId: user,
+    isActive
+  };
+};
+
 // ==================== ENDPOINTS ====================
 
-export const addFaculty = async (req, res) => {
+export const addFaculty = async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
@@ -404,17 +430,15 @@ export const addFaculty = async (req, res) => {
       data: { faculty }
     });
   } catch (error) {
-    await session.abortTransaction();
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
     session.endSession();
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const updateFaculty = async (req, res) => {
+export const updateFaculty = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -585,15 +609,11 @@ export const updateFaculty = async (req, res) => {
       data: { faculty }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const deleteFaculty = async (req, res) => {
+export const deleteFaculty = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -614,34 +634,33 @@ export const deleteFaculty = async (req, res) => {
       });
     }
 
-    await Promise.all([
-      User.findByIdAndDelete(faculty.userId),
-      Faculty.findByIdAndDelete(faculty._id)
-    ]);
+    const user = await User.findById(faculty.userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Linked user not found',
+        data: {}
+      });
+    }
+
+    user.isActive = false;
+    await user.save({ validateBeforeSave: false });
 
     return res.json({
       success: true,
-      message: 'Faculty deleted successfully',
+      message: 'Faculty deactivated successfully',
       data: {}
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const uploadMultipleFaculty = async (req, res) => {
+export const uploadMultipleFaculty = async (req, res, next) => {
   let session;
   try {
     if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: 'No file uploaded',
-        data: {}
-      });
+      return next(new AppError('No file uploaded', 400));
     }
 
     // Read workbook
@@ -691,7 +710,11 @@ export const uploadMultipleFaculty = async (req, res) => {
           'workType'
         ];
         for (const field of requiredFields) {
-          if (!payload[field] || payload[field].trim() === '') {
+          if (
+            payload[field] === undefined ||
+            payload[field] === null ||
+            String(payload[field]).trim() === ''
+          ) {
             throw new Error(`${field} is required`);
           }
         }
@@ -823,7 +846,7 @@ export const uploadMultipleFaculty = async (req, res) => {
             [
               {
                 email: cleanEmail,
-                password: payload.password || '123456',
+                password: payload.password || 'sece@123',
                 role: 'FACULTY',
                 gender,
                 dateOfBirth
@@ -930,19 +953,20 @@ export const uploadMultipleFaculty = async (req, res) => {
     if (failedRows.length > 0) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(400).json({
-        success: false,
-        message:
+      return next(
+        new AppError(
           'Bulk upload failed due to errors in some rows. No changes were saved.',
-        data: {
-          usersCreated: 0,
-          usersUpdated: 0,
-          facultyCreated: 0,
-          facultyUpdated: 0,
-          failedCount: failedRows.length,
-          failedRows
-        }
-      });
+          400,
+          {
+            usersCreated: 0,
+            usersUpdated: 0,
+            facultyCreated: 0,
+            facultyUpdated: 0,
+            failedCount: failedRows.length,
+            failedRows
+          }
+        )
+      );
     } else {
       await session.commitTransaction();
       session.endSession();
@@ -961,18 +985,16 @@ export const uploadMultipleFaculty = async (req, res) => {
     }
   } catch (error) {
     if (session) {
-      await session.abortTransaction();
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
       session.endSession();
     }
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getAllFaculty = async (req, res) => {
+export const getAllFaculty = async (req, res, next) => {
   try {
     const { departmentId, designation, employmentStatus } = req.query;
     const filter = {};
@@ -1000,21 +1022,19 @@ export const getAllFaculty = async (req, res) => {
         'firstName lastName employeeId designation'
       );
 
+    const formattedFacultyList = facultyList.map(flattenFacultyUserIsActive);
+
     return res.json({
       success: true,
       message: 'Faculty list retrieved successfully',
-      data: { facultyList }
+      data: { facultyList: formattedFacultyList }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getDepartmentWise = async (req, res) => {
+export const getDepartmentWise = async (req, res, next) => {
   try {
     const result = await Faculty.aggregate([
       {
@@ -1055,15 +1075,11 @@ export const getDepartmentWise = async (req, res) => {
       data: { result }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getDepartmentWiseFaculty = async (req, res) => {
+export const getDepartmentWiseFaculty = async (req, res, next) => {
   try {
     const { department } = req.params; // expecting department ID
 
@@ -1135,15 +1151,11 @@ export const getDepartmentWiseFaculty = async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getDepartmentWiseFacultyList = async (req, res) => {
+export const getDepartmentWiseFacultyList = async (req, res, next) => {
   try {
     const { department } = req.params; // expecting department ID
 
@@ -1169,24 +1181,22 @@ export const getDepartmentWiseFacultyList = async (req, res) => {
       .populate('userId', 'email role isActive gender dateOfBirth')
       .populate('departmentId', 'name code');
 
+    const formattedFaculty = faculty.map(flattenFacultyUserIsActive);
+
     return res.json({
       success: true,
       message: 'Department wise faculty list retrieved successfully',
       data: {
-        total: faculty.length,
-        faculty
+        total: formattedFaculty.length,
+        faculty: formattedFaculty
       }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getDashboardStats = async (req, res) => {
+export const getDashboardStats = async (req, res, next) => {
   try {
     const total = await Faculty.countDocuments();
 
@@ -1247,10 +1257,6 @@ export const getDashboardStats = async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };

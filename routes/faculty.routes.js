@@ -133,8 +133,6 @@ const upload = multer({ storage: multer.memoryStorage() });
  *             status:
  *               type: string
  *               enum: [active, inactive]
- *             isActive:
- *               type: boolean
  *             profileImage:
  *               type: string
  *               nullable: true
@@ -156,6 +154,29 @@ const upload = multer({ storage: multer.memoryStorage() });
  *             updatedAt:
  *               type: string
  *               format: date-time
+ *
+ *     FacultyWithUserStatus:
+ *       allOf:
+ *         - $ref: '#/components/schemas/Faculty'
+ *         - type: object
+ *           properties:
+ *             isActive:
+ *               type: boolean
+ *               description: Active status from linked user account.
+ *             userId:
+ *               type: object
+ *               properties:
+ *                 _id:
+ *                   type: string
+ *                 email:
+ *                   type: string
+ *                 role:
+ *                   type: string
+ *                 gender:
+ *                   type: string
+ *                 dateOfBirth:
+ *                   type: string
+ *                   format: date-time
  *
  *     FacultyResponse:
  *       type: object
@@ -187,7 +208,7 @@ const upload = multer({ storage: multer.memoryStorage() });
  *             facultyList:
  *               type: array
  *               items:
- *                 $ref: '#/components/schemas/Faculty'
+ *                 $ref: '#/components/schemas/FacultyWithUserStatus'
  *
  *     FacultyUploadSummaryResponse:
  *       type: object
@@ -348,7 +369,7 @@ const upload = multer({ storage: multer.memoryStorage() });
  *             faculty:
  *               type: array
  *               items:
- *                 $ref: '#/components/schemas/Faculty'
+ *                 $ref: '#/components/schemas/FacultyWithUserStatus'
  *
  *     ErrorResponse:
  *       type: object
@@ -601,10 +622,10 @@ router.put(
  * @swagger
  * /api/faculty/{id}:
  *   delete:
- *     summary: Delete faculty and linked user
+ *     summary: Deactivate linked user for faculty
  *     tags: [Faculty]
  *     description: |
- *       Deletes a faculty record and its linked user account.
+ *       Soft delete behavior only: keeps faculty and user documents, and sets linked user `isActive=false`.
  *
  *       **Access:** ADMIN only
  *     security:
@@ -618,7 +639,7 @@ router.put(
  *         description: Faculty ObjectId
  *     responses:
  *       200:
- *         description: Faculty deleted successfully
+ *         description: Faculty deactivated successfully
  *         content:
  *           application/json:
  *             schema:
@@ -629,7 +650,7 @@ router.put(
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: Faculty deleted successfully
+ *                   example: Faculty deactivated successfully
  *                 data:
  *                   type: object
  *       400:

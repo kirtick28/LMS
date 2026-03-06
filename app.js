@@ -24,6 +24,7 @@ import batchProgramRoutes from './routes/batchProgram.routes.js';
 import facultyAssignmentRoutes from './routes/facultyAssignment.routes.js';
 import studentAcademicRecordRoutes from './routes/studentAcademicRecord.routes.js';
 import globalErrorHandler from './middleware/error.middleware.js';
+import AppError from './utils/AppError.js';
 
 const app = express();
 
@@ -54,11 +55,12 @@ app.use('/api/batch-programs', batchProgramRoutes);
 app.use('/api/faculty-assignments', facultyAssignmentRoutes);
 app.use('/api/student-academic-records', studentAcademicRecordRoutes);
 
+app.all('/{*any}', (req, res, next) => {
+  next(new AppError(`Can't find ${req.originalUrl} on this server`, 404));
+});
+
 app.use(globalErrorHandler);
 
 // Backend Check
-app.get('/', (req, res) => {
-  res.send('LMS Backend is running ✅');
-});
 
 export default app;

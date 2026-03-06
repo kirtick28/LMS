@@ -13,7 +13,7 @@ const populateConfig = {
   ]
 };
 
-export const createSection = async (req, res) => {
+export const createSection = async (req, res, next) => {
   try {
     const { name, batchProgramId, capacity, isActive } = req.body;
 
@@ -71,15 +71,11 @@ export const createSection = async (req, res) => {
       data: { section }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getAllSections = async (req, res) => {
+export const getAllSections = async (req, res, next) => {
   try {
     const { batchProgramId, isActive } = req.query;
 
@@ -110,15 +106,11 @@ export const getAllSections = async (req, res) => {
       data: { sections }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getSectionById = async (req, res) => {
+export const getSectionById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -146,15 +138,11 @@ export const getSectionById = async (req, res) => {
       data: { section }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const updateSection = async (req, res) => {
+export const updateSection = async (req, res, next) => {
   try {
     const { id } = req.params;
     const updates = { ...req.body };
@@ -231,15 +219,11 @@ export const updateSection = async (req, res) => {
       data: { section }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const deleteSection = async (req, res) => {
+export const deleteSection = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -267,10 +251,6 @@ export const deleteSection = async (req, res) => {
       data: {}
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };

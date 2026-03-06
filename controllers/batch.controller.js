@@ -3,7 +3,7 @@ import Batch from '../models/Batch.js';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
-export const createBatch = async (req, res) => {
+export const createBatch = async (req, res, next) => {
   try {
     const { name, startYear, endYear, programDuration, isActive } = req.body;
 
@@ -57,15 +57,11 @@ export const createBatch = async (req, res) => {
       data: { batch }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getAllBatches = async (req, res) => {
+export const getAllBatches = async (req, res, next) => {
   try {
     const { isActive } = req.query;
 
@@ -83,15 +79,11 @@ export const getAllBatches = async (req, res) => {
       data: { batches }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getBatchById = async (req, res) => {
+export const getBatchById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -119,15 +111,11 @@ export const getBatchById = async (req, res) => {
       data: { batch }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const updateBatch = async (req, res) => {
+export const updateBatch = async (req, res, next) => {
   try {
     const { id } = req.params;
     const updates = { ...req.body };
@@ -188,15 +176,11 @@ export const updateBatch = async (req, res) => {
       data: { batch }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const deleteBatch = async (req, res) => {
+export const deleteBatch = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -224,10 +208,6 @@ export const deleteBatch = async (req, res) => {
       data: { batch }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };

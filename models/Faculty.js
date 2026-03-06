@@ -100,11 +100,6 @@ const facultySchema = new mongoose.Schema(
       enum: ['active', 'inactive'],
       default: 'active'
     },
-    isActive: {
-      type: Boolean,
-      default: true,
-      index: true
-    },
     documents: {
       marksheet: { type: String, default: null },
       experienceCertificate: { type: String, default: null },
@@ -122,8 +117,9 @@ facultySchema.virtual('fullName').get(function () {
 
 facultySchema.pre('validate', function () {
   if (this.employmentStatus) {
-    this.isActive = !['RESIGNED', 'RETIRED'].includes(this.employmentStatus);
-    this.status = this.isActive ? 'active' : 'inactive';
+    this.status = ['RESIGNED', 'RETIRED'].includes(this.employmentStatus)
+      ? 'inactive'
+      : 'active';
   }
 });
 

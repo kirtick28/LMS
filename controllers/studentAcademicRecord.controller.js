@@ -6,7 +6,7 @@ import Section from '../models/Section.js';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
-export const createStudentAcademicRecord = async (req, res) => {
+export const createStudentAcademicRecord = async (req, res, next) => {
   try {
     const { studentId, academicYearId, semesterNumber, sectionId, status } =
       req.body;
@@ -75,15 +75,11 @@ export const createStudentAcademicRecord = async (req, res) => {
       data: { record }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getAllStudentAcademicRecords = async (req, res) => {
+export const getAllStudentAcademicRecords = async (req, res, next) => {
   try {
     const { studentId, academicYearId, sectionId, status } = req.query;
     const filter = {};
@@ -137,15 +133,11 @@ export const getAllStudentAcademicRecords = async (req, res) => {
       data: { records }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getStudentAcademicRecordById = async (req, res) => {
+export const getStudentAcademicRecordById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -176,15 +168,11 @@ export const getStudentAcademicRecordById = async (req, res) => {
       data: { record }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const updateStudentAcademicRecord = async (req, res) => {
+export const updateStudentAcademicRecord = async (req, res, next) => {
   try {
     const { id } = req.params;
     const updates = { ...req.body };
@@ -256,15 +244,11 @@ export const updateStudentAcademicRecord = async (req, res) => {
       data: { record }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const deleteStudentAcademicRecord = async (req, res) => {
+export const deleteStudentAcademicRecord = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -292,10 +276,6 @@ export const deleteStudentAcademicRecord = async (req, res) => {
       data: {}
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };

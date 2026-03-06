@@ -3,6 +3,7 @@ import Curriculum from '../models/Curriculum.js';
 import Department from '../models/Department.js';
 import Regulation from '../models/Regulation.js';
 import Subject from '../models/Subject.js';
+import AppError from '../utils/AppError.js';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -68,7 +69,7 @@ const isBadRequestError = (error) => {
   );
 };
 
-export const createCurriculum = async (req, res) => {
+export const createCurriculum = async (req, res, next) => {
   try {
     const { departmentId, regulationId, semesters, isActive } = req.body;
 
@@ -145,15 +146,11 @@ export const createCurriculum = async (req, res) => {
       data: { curriculum }
     });
   } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(new AppError(error.message, 400));
   }
 };
 
-export const getAllCurriculums = async (req, res) => {
+export const getAllCurriculums = async (req, res, next) => {
   try {
     const { departmentId, regulationId, isActive } = req.query;
 
@@ -183,15 +180,11 @@ export const getAllCurriculums = async (req, res) => {
       data: { curriculums }
     });
   } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(new AppError(error.message, 400));
   }
 };
 
-export const getCurriculumById = async (req, res) => {
+export const getCurriculumById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -222,15 +215,13 @@ export const getCurriculumById = async (req, res) => {
       data: { curriculum }
     });
   } catch (error) {
-    return res.status(isBadRequestError(error) ? 400 : 500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(
+      new AppError(error.message, isBadRequestError(error) ? 400 : 500)
+    );
   }
 };
 
-export const updateCurriculum = async (req, res) => {
+export const updateCurriculum = async (req, res, next) => {
   try {
     const { id } = req.params;
     const updates = { ...req.body };
@@ -309,15 +300,11 @@ export const updateCurriculum = async (req, res) => {
       data: { curriculum }
     });
   } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(new AppError(error.message, 400));
   }
 };
 
-export const deleteCurriculum = async (req, res) => {
+export const deleteCurriculum = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -345,10 +332,6 @@ export const deleteCurriculum = async (req, res) => {
       data: { curriculum }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };

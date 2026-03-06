@@ -11,7 +11,7 @@ const normalizeTotalSemesters = (value) => {
   return Math.min(Math.max(parsed, 1), 8);
 };
 
-export const createRegulation = async (req, res) => {
+export const createRegulation = async (req, res, next) => {
   try {
     const { name, startYear, totalSemesters, isActive } = req.body;
 
@@ -52,15 +52,11 @@ export const createRegulation = async (req, res) => {
       data: { regulation }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getAllRegulations = async (req, res) => {
+export const getAllRegulations = async (req, res, next) => {
   try {
     const { isActive } = req.query;
     const filter = {};
@@ -80,15 +76,11 @@ export const getAllRegulations = async (req, res) => {
       data: { regulations }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getRegulationById = async (req, res) => {
+export const getRegulationById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -116,15 +108,11 @@ export const getRegulationById = async (req, res) => {
       data: { regulation }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const updateRegulation = async (req, res) => {
+export const updateRegulation = async (req, res, next) => {
   try {
     const { id } = req.params;
     const updates = { ...req.body };
@@ -192,15 +180,11 @@ export const updateRegulation = async (req, res) => {
       data: { regulation }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const deleteRegulation = async (req, res) => {
+export const deleteRegulation = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -228,10 +212,6 @@ export const deleteRegulation = async (req, res) => {
       data: { regulation }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };

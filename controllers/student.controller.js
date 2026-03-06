@@ -7,6 +7,7 @@ import Section from '../models/Section.js';
 import Regulation from '../models/Regulation.js';
 import mongoose from 'mongoose';
 import xlsx from 'xlsx';
+import AppError from '../utils/AppError.js';
 
 const DEFAULT_SECTION_NAME = 'UNALLOCATED';
 
@@ -215,23 +216,19 @@ const resolveStudentContext = async (payload, forceUnallocated = false) => {
   };
 };
 
-const handleBadRequest = (res, error) => {
+const mapToAppError = (error) => {
   if (
     /Invalid .*Id/i.test(error.message) ||
     /require/i.test(error.message) ||
     /already exists/i.test(error.message)
   ) {
-    return res
-      .status(400)
-      .json({ success: false, message: error.message, data: {} });
+    return new AppError(error.message, 400);
   }
 
-  return res
-    .status(500)
-    .json({ success: false, message: error.message, data: {} });
+  return error instanceof AppError ? error : new AppError(error.message, 500);
 };
 
-export const addStudent = async (req, res) => {
+export const addStudent = async (req, res, next) => {
   try {
     const {
       email,
@@ -317,11 +314,11 @@ export const addStudent = async (req, res) => {
       data: { student }
     });
   } catch (error) {
-    return handleBadRequest(res, error);
+    return next(mapToAppError(error));
   }
 };
 
-export const updateStudent = async (req, res) => {
+export const updateStudent = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -411,11 +408,11 @@ export const updateStudent = async (req, res) => {
       data: { student }
     });
   } catch (error) {
-    return handleBadRequest(res, error);
+    return next(mapToAppError(error));
   }
 };
 
-export const deleteStudent = async (req, res) => {
+export const deleteStudent = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -442,11 +439,11 @@ export const deleteStudent = async (req, res) => {
       data: {}
     });
   } catch (error) {
-    return handleBadRequest(res, error);
+    return next(mapToAppError(error));
   }
 };
 
-export const getAllStudents = async (req, res) => {
+export const getAllStudents = async (req, res, next) => {
   try {
     const filter = {};
 
@@ -482,11 +479,11 @@ export const getAllStudents = async (req, res) => {
       data: { students }
     });
   } catch (error) {
-    return handleBadRequest(res, error);
+    return next(mapToAppError(error));
   }
 };
 
-export const updateStudentSemester = async (req, res) => {
+export const updateStudentSemester = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { semesterNumber } = req.body;
@@ -526,11 +523,11 @@ export const updateStudentSemester = async (req, res) => {
       data: { student }
     });
   } catch (error) {
-    return handleBadRequest(res, error);
+    return next(mapToAppError(error));
   }
 };
 
-export const uploadMultipleStudents = async (req, res) => {
+export const uploadMultipleStudents = async (req, res, next) => {
   try {
     if (!req.file) {
       return res
@@ -621,11 +618,11 @@ export const uploadMultipleStudents = async (req, res) => {
       }
     });
   } catch (error) {
-    return handleBadRequest(res, error);
+    return next(mapToAppError(error));
   }
 };
 
-export const getStudentStats = async (req, res) => {
+export const getStudentStats = async (req, res, next) => {
   try {
     const { departmentId } = req.query;
 
@@ -660,11 +657,11 @@ export const getStudentStats = async (req, res) => {
       }
     });
   } catch (error) {
-    return handleBadRequest(res, error);
+    return next(mapToAppError(error));
   }
 };
 
-export const getStudentDepartmentWise = async (req, res) => {
+export const getStudentDepartmentWise = async (req, res, next) => {
   try {
     const students = await Student.aggregate([
       {
@@ -719,6 +716,6 @@ export const getStudentDepartmentWise = async (req, res) => {
       }
     });
   } catch (error) {
-    return handleBadRequest(res, error);
+    return next(mapToAppError(error));
   }
 };

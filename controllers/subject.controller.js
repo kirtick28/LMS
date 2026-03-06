@@ -2,10 +2,11 @@ import mongoose from 'mongoose';
 import Subject from '../models/Subject.js';
 import Department from '../models/Department.js';
 import xlsx from 'xlsx';
+import AppError from '../utils/AppError.js';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
-export const createSubject = async (req, res) => {
+export const createSubject = async (req, res, next) => {
   try {
     const { name, code, credits, courseType, departmentId, isActive } =
       req.body;
@@ -74,22 +75,16 @@ export const createSubject = async (req, res) => {
     });
   } catch (error) {
     if (error.code === 11000) {
-      return res.status(409).json({
-        success: false,
-        message: 'Subject code already exists in this department',
-        data: {}
-      });
+      return next(
+        new AppError('Subject code already exists in this department', 409)
+      );
     }
 
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getAllSubjects = async (req, res) => {
+export const getAllSubjects = async (req, res, next) => {
   try {
     const { departmentId, courseType, isActive } = req.query;
 
@@ -126,15 +121,11 @@ export const getAllSubjects = async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getSubjectById = async (req, res) => {
+export const getSubjectById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -167,15 +158,11 @@ export const getSubjectById = async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const updateSubject = async (req, res) => {
+export const updateSubject = async (req, res, next) => {
   try {
     const { id } = req.params;
     const updates = { ...req.body };
@@ -259,22 +246,16 @@ export const updateSubject = async (req, res) => {
     });
   } catch (error) {
     if (error.code === 11000) {
-      return res.status(409).json({
-        success: false,
-        message: 'Subject code already exists in this department',
-        data: {}
-      });
+      return next(
+        new AppError('Subject code already exists in this department', 409)
+      );
     }
 
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const deleteSubject = async (req, res) => {
+export const deleteSubject = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -304,15 +285,11 @@ export const deleteSubject = async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const uploadMultipleSubjects = async (req, res) => {
+export const uploadMultipleSubjects = async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -412,10 +389,6 @@ export const uploadMultipleSubjects = async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };

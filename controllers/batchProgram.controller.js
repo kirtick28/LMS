@@ -4,10 +4,11 @@ import Batch from '../models/Batch.js';
 import Department from '../models/Department.js';
 import Regulation from '../models/Regulation.js';
 import Section from '../models/Section.js';
+import AppError from '../utils/AppError.js';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
-export const getBatchProgramDetailsByParams = async (req, res) => {
+export const getBatchProgramDetailsByParams = async (req, res, next) => {
   try {
     const batchId = req.params.batchId || req.query.batchId;
     const departmentId = req.params.departmentId || req.query.departmentId;
@@ -81,15 +82,11 @@ export const getBatchProgramDetailsByParams = async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const createBatchProgram = async (req, res) => {
+export const createBatchProgram = async (req, res, next) => {
   try {
     const { batchId, departmentId, regulationId } = req.body;
 
@@ -182,30 +179,25 @@ export const createBatchProgram = async (req, res) => {
       error.code === 11000 &&
       (error.keyPattern?.batchId || error.keyPattern?.departmentId)
     ) {
-      return res.status(409).json({
-        success: false,
-        message: 'This department is already mapped to this batch',
-        data: {}
-      });
+      return next(
+        new AppError('This department is already mapped to this batch', 409)
+      );
     }
 
     if (error.code === 11000) {
-      return res.status(409).json({
-        success: false,
-        message: 'Duplicate key conflict while creating related records',
-        data: {}
-      });
+      return next(
+        new AppError(
+          'Duplicate key conflict while creating related records',
+          409
+        )
+      );
     }
 
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getAllBatchPrograms = async (req, res) => {
+export const getAllBatchPrograms = async (req, res, next) => {
   try {
     const { batchId, departmentId, regulationId } = req.query;
 
@@ -256,15 +248,11 @@ export const getAllBatchPrograms = async (req, res) => {
       data: { batchPrograms }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getBatchProgramById = async (req, res) => {
+export const getBatchProgramById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -295,15 +283,11 @@ export const getBatchProgramById = async (req, res) => {
       data: { batchProgram }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const updateBatchProgram = async (req, res) => {
+export const updateBatchProgram = async (req, res, next) => {
   try {
     const { id } = req.params;
     const updates = { ...req.body };
@@ -387,15 +371,11 @@ export const updateBatchProgram = async (req, res) => {
       data: { batchProgram }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const deleteBatchProgram = async (req, res) => {
+export const deleteBatchProgram = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -423,10 +403,6 @@ export const deleteBatchProgram = async (req, res) => {
       data: {}
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };

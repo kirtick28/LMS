@@ -3,7 +3,7 @@ import AcademicYear from '../models/AcademicYear.js';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
-export const createAcademicYear = async (req, res) => {
+export const createAcademicYear = async (req, res, next) => {
   try {
     const { startYear, endYear, startMonth, endMonth, isActive } = req.body;
 
@@ -46,15 +46,11 @@ export const createAcademicYear = async (req, res) => {
       data: { academicYear }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getAllAcademicYears = async (req, res) => {
+export const getAllAcademicYears = async (req, res, next) => {
   try {
     const { isActive } = req.query;
     const filter = {};
@@ -73,15 +69,11 @@ export const getAllAcademicYears = async (req, res) => {
       data: { academicYears }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getAcademicYearById = async (req, res) => {
+export const getAcademicYearById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -109,15 +101,11 @@ export const getAcademicYearById = async (req, res) => {
       data: { academicYear }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const updateAcademicYear = async (req, res) => {
+export const updateAcademicYear = async (req, res, next) => {
   try {
     const { id } = req.params;
     const updates = { ...req.body };
@@ -184,15 +172,11 @@ export const updateAcademicYear = async (req, res) => {
       data: { academicYear }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const deleteAcademicYear = async (req, res) => {
+export const deleteAcademicYear = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -220,10 +204,6 @@ export const deleteAcademicYear = async (req, res) => {
       data: {}
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };

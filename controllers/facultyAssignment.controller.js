@@ -8,7 +8,7 @@ import Curriculum from '../models/Curriculum.js';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
-export const createFacultyAssignment = async (req, res) => {
+export const createFacultyAssignment = async (req, res, next) => {
   try {
     const { facultyId, sectionId, subjectId, academicYearId, semesterNumber } =
       req.body;
@@ -116,15 +116,11 @@ export const createFacultyAssignment = async (req, res) => {
       data: { assignment }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getAllFacultyAssignments = async (req, res) => {
+export const getAllFacultyAssignments = async (req, res, next) => {
   try {
     const { facultyId, sectionId, academicYearId, status } = req.query;
     const filter = {};
@@ -179,15 +175,11 @@ export const getAllFacultyAssignments = async (req, res) => {
       data: { assignments }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const getFacultyAssignmentById = async (req, res) => {
+export const getFacultyAssignmentById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -219,15 +211,11 @@ export const getFacultyAssignmentById = async (req, res) => {
       data: { assignment }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const updateFacultyAssignment = async (req, res) => {
+export const updateFacultyAssignment = async (req, res, next) => {
   try {
     const { id } = req.params;
     const updates = { ...req.body };
@@ -313,15 +301,11 @@ export const updateFacultyAssignment = async (req, res) => {
       data: { assignment }
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };
 
-export const deleteFacultyAssignment = async (req, res) => {
+export const deleteFacultyAssignment = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -349,10 +333,6 @@ export const deleteFacultyAssignment = async (req, res) => {
       data: {}
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-      data: {}
-    });
+    return next(error);
   }
 };

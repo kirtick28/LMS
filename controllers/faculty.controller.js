@@ -34,9 +34,10 @@ const normalizeCode = (value) => {
 };
 
 const normalizePhone = (value) => {
-  const digits = String(value || '').replace(/\D/g, '');
+  if (!value) return null;
+  const digits = String(value).replace(/\D/g, '');
   if (/^[0-9]{10}$/.test(digits)) return digits;
-  return `9${Math.floor(100000000 + Math.random() * 900000000)}`;
+  return null; // Return null if invalid instead of generating randoms for better data quality
 };
 
 const normalizeDesignation = (rawDesignation) => {
@@ -87,8 +88,25 @@ const normalizeExcelRow = (row) => {
     password: clean(getNorm(normalized, 'password', 'pass')),
     firstName: clean(getNorm(normalized, 'firstname', 'fname', 'name')),
     lastName: clean(getNorm(normalized, 'lastname', 'lname', 'surname')),
-    phone: clean(
-      getNorm(normalized, 'mobilenumber', 'mobilenumber1', 'mobile', 'phone')
+    primaryPhone: clean(
+      getNorm(
+        normalized,
+        'primaryphone',
+        'mobilenumber',
+        'mobile',
+        'phone',
+        'phone1'
+      )
+    ),
+    secondaryPhone: clean(
+      getNorm(
+        normalized,
+        'secondaryphone',
+        'alternatenumber',
+        'altphone',
+        'phone2',
+        'mobile2'
+      )
     ),
     employeeId: clean(
       getNorm(normalized, 'employeeid', 'empid', 'employeecode')
@@ -175,8 +193,8 @@ export const addFaculty = async (req, res) => {
       gender,
       dateOfBirth,
       email,
-      mobileNumber,
-      phone,
+      primaryPhone,
+      secondaryPhone,
       qualification,
       workType,
       employeeId,
@@ -187,13 +205,11 @@ export const addFaculty = async (req, res) => {
       password
     } = req.body;
 
-    const inputPhone = mobileNumber || phone;
-
-    if (!email || !firstName || !lastName || !employeeId || !inputPhone) {
+    if (!email || !firstName || !lastName || !employeeId || !primaryPhone) {
       return res.status(400).json({
         success: false,
         message:
-          'email, firstName, lastName, employeeId and mobileNumber/phone are required',
+          'email, firstName, lastName, employeeId and primaryPhone are required',
         data: {}
       });
     }
@@ -238,7 +254,8 @@ export const addFaculty = async (req, res) => {
       salutation,
       firstName: clean(firstName),
       lastName: clean(lastName),
-      phone: normalizePhone(inputPhone),
+      primaryPhone: normalizePhone(primaryPhone),
+      secondaryPhone: normalizePhone(secondaryPhone) || null,
       employeeId: cleanEmployeeId,
       designation: normalizeDesignation(designation),
       qualification,
@@ -340,8 +357,12 @@ export const updateFaculty = async (req, res) => {
       }
     });
 
-    if (req.body.mobileNumber !== undefined || req.body.phone !== undefined) {
-      faculty.phone = normalizePhone(req.body.mobileNumber || req.body.phone);
+    if (req.body.primaryPhone !== undefined) {
+      faculty.primaryPhone = normalizePhone(req.body.primaryPhone);
+    }
+
+    if (req.body.secondaryPhone !== undefined) {
+      faculty.secondaryPhone = normalizePhone(req.body.secondaryPhone) || null;
     }
 
     if (req.body.employeeId !== undefined) {
@@ -475,10 +496,10 @@ export const uploadMultipleFaculty = async (req, res) => {
           !payload.firstName ||
           !payload.lastName ||
           !payload.employeeId ||
-          !payload.phone
+          !payload.primaryPhone
         ) {
           throw new Error(
-            'email, firstName, lastName, employeeId and mobileNumber/phone are required'
+            'email, firstName, lastName, employeeId and primaryPhone are required'
           );
         }
 
@@ -503,7 +524,8 @@ export const uploadMultipleFaculty = async (req, res) => {
             salutation: payload.salutation || undefined,
             firstName: payload.firstName,
             lastName: payload.lastName,
-            phone: normalizePhone(payload.phone),
+            primaryPhone: normalizePhone(payload.primaryPhone),
+            secondaryPhone: normalizePhone(payload.secondaryPhone) || null,
             employeeId: payload.employeeId,
             designation: normalizeDesignation(payload.designation),
             qualification: payload.qualification || undefined,
@@ -547,7 +569,11 @@ export const uploadMultipleFaculty = async (req, res) => {
           faculty.salutation = payload.salutation || faculty.salutation;
           faculty.firstName = payload.firstName || faculty.firstName;
           faculty.lastName = payload.lastName || faculty.lastName;
-          faculty.phone = normalizePhone(payload.phone || faculty.phone);
+          faculty.primaryPhone = normalizePhone(
+            payload.primaryPhone || faculty.primaryPhone
+          );
+          faculty.secondaryPhone =
+            normalizePhone(payload.secondaryPhone) || faculty.secondaryPhone;
           faculty.employeeId = payload.employeeId || faculty.employeeId;
           faculty.designation = normalizeDesignation(
             payload.designation || faculty.designation
@@ -578,7 +604,8 @@ export const uploadMultipleFaculty = async (req, res) => {
             salutation: payload.salutation || undefined,
             firstName: payload.firstName,
             lastName: payload.lastName,
-            phone: normalizePhone(payload.phone),
+            primaryPhone: normalizePhone(payload.primaryPhone),
+            secondaryPhone: normalizePhone(payload.secondaryPhone) || null,
             employeeId: payload.employeeId,
             designation: normalizeDesignation(payload.designation),
             qualification: payload.qualification || undefined,

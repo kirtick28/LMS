@@ -17,13 +17,15 @@ const academicYearSchema = new mongoose.Schema(
       type: Number,
       required: true
     },
-    startDate: {
-      type: Date,
-      required: true
+    startMonth: {
+      type: Number,
+      min: 1,
+      max: 12
     },
-    endDate: {
-      type: Date,
-      required: true
+    endMonth: {
+      type: Number,
+      min: 1,
+      max: 12
     },
     isActive: {
       type: Boolean,
@@ -44,8 +46,22 @@ academicYearSchema.pre('validate', function () {
     throw new Error('endYear must be greater than startYear');
   }
 
-  if (this.startDate >= this.endDate) {
-    throw new Error('endDate must be after startDate');
+  if (
+    this.startMonth !== undefined &&
+    (!Number.isInteger(this.startMonth) ||
+      this.startMonth < 1 ||
+      this.startMonth > 12)
+  ) {
+    throw new Error('startMonth must be an integer between 1 and 12');
+  }
+
+  if (
+    this.endMonth !== undefined &&
+    (!Number.isInteger(this.endMonth) ||
+      this.endMonth < 1 ||
+      this.endMonth > 12)
+  ) {
+    throw new Error('endMonth must be an integer between 1 and 12');
   }
 });
 

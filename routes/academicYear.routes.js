@@ -26,8 +26,6 @@ const router = express.Router();
  *       required:
  *         - startYear
  *         - endYear
- *         - startDate
- *         - endDate
  *       properties:
  *         startYear:
  *           type: integer
@@ -35,12 +33,16 @@ const router = express.Router();
  *         endYear:
  *           type: integer
  *           example: 2026
- *         startDate:
- *           type: string
- *           format: date-time
- *         endDate:
- *           type: string
- *           format: date-time
+ *         startMonth:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 12
+ *           example: 7
+ *         endMonth:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 12
+ *           example: 5
  *         isActive:
  *           type: boolean
  *           example: true
@@ -51,12 +53,14 @@ const router = express.Router();
  *           type: integer
  *         endYear:
  *           type: integer
- *         startDate:
- *           type: string
- *           format: date-time
- *         endDate:
- *           type: string
- *           format: date-time
+ *         startMonth:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 12
+ *         endMonth:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 12
  *         isActive:
  *           type: boolean
  *     AcademicYearResponse:

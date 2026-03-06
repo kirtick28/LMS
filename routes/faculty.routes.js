@@ -20,181 +20,350 @@ const upload = multer({ storage: multer.memoryStorage() });
  * @swagger
  * tags:
  *   name: Faculty
- *   description: Faculty profile management, bulk import, and analytics
+ *   description: Faculty management and reporting
  */
 
 /**
  * @swagger
  * components:
  *   schemas:
- *     FacultyCreateRequest:
+ *     FacultyInput:
  *       type: object
  *       required:
  *         - email
- *         - password
  *         - firstName
  *         - lastName
  *         - employeeId
- *         - mobileNumber
- *         - designation
+ *         - primaryPhone
+ *         - departmentId
  *       properties:
- *         email:
- *           type: string
- *           example: faculty1@example.com
- *         password:
- *           type: string
- *           example: pass1234
- *         firstName:
- *           type: string
- *           example: Ravi
- *         lastName:
- *           type: string
- *           example: Kumar
  *         salutation:
  *           type: string
  *           example: Dr.
- *         mobileNumber:
+ *         firstName:
  *           type: string
- *           example: 9876543210
- *         phone:
+ *           example: Meera
+ *         lastName:
  *           type: string
- *           description: Alias for mobileNumber
- *           example: 9876543210
+ *           example: Nair
+ *         email:
+ *           type: string
+ *           example: meera.nair@college.edu
+ *         password:
+ *           type: string
+ *           description: Defaults to 123456 when omitted.
+ *           example: SecurePass@123
+ *         gender:
+ *           type: string
+ *           example: Female
+ *         dateOfBirth:
+ *           type: string
+ *           format: date
+ *           example: 1988-07-24
+ *         primaryPhone:
+ *           type: string
+ *           description: 10-digit mobile number.
+ *           example: '9876543210'
+ *         secondaryPhone:
+ *           type: string
+ *           nullable: true
+ *           description: Optional 10-digit mobile number.
+ *           example: '9123456780'
  *         employeeId:
  *           type: string
- *           example: EMP1001
- *         designation:
- *           type: string
- *           enum: [Professor, Assistant Professor, Associate Professor, HOD, Dean, Faculty, Professor of Practice, Lab Technician, Department Secretary, Senior Lab Technician]
+ *           example: FAC1024
  *         departmentId:
  *           type: string
- *           description: Existing department ObjectId
- *         departmentName:
+ *           description: MongoDB ObjectId of Department.
+ *           example: 65f0425db4d5f9a7d9e1134a
+ *         designation:
  *           type: string
- *           description: Used to find/create department if departmentId is not supplied
- *           example: Computer Science and Engineering
- *         departmentCode:
- *           type: string
- *           example: CSE
+ *           enum:
+ *             - Professor
+ *             - Associate Professor
+ *             - Assistant Professor
+ *             - HOD
+ *             - Dean
+ *             - Faculty
+ *             - Professor of Practice
+ *             - Lab Technician
+ *             - Senior Lab Technician
+ *             - Department Secretary
+ *           example: Assistant Professor
  *         qualification:
  *           type: string
- *           example: PhD
+ *           example: M.E. Computer Science
  *         workType:
  *           type: string
  *           example: Full Time
  *         joiningDate:
  *           type: string
  *           format: date
- *           example: 2024-06-15
+ *           example: 2021-06-10
  *         reportingManager:
  *           type: string
- *           description: Faculty ObjectId
+ *           nullable: true
+ *           description: MongoDB ObjectId of a Faculty record.
+ *           example: 65f0429bb4d5f9a7d9e11355
  *         noticePeriod:
  *           type: string
- *           example: 2 months
- *         gender:
- *           type: string
- *           enum: [Male, Female, Other]
- *         dateOfBirth:
- *           type: string
- *           format: date
- *           example: 1986-01-21
- *     FacultyUpdateRequest:
- *       type: object
- *       properties:
- *         email:
- *           type: string
- *         password:
- *           type: string
- *         firstName:
- *           type: string
- *         lastName:
- *           type: string
- *         mobileNumber:
- *           type: string
- *         phone:
- *           type: string
- *         employeeId:
- *           type: string
- *         designation:
- *           type: string
- *         departmentId:
- *           type: string
- *         departmentName:
- *           type: string
- *         departmentCode:
- *           type: string
+ *           example: 30 days
  *         employmentStatus:
  *           type: string
  *           enum: [ACTIVE, ON_LEAVE, RESIGNED, RETIRED]
- *         qualification:
- *           type: string
- *         workType:
- *           type: string
- *         joiningDate:
- *           type: string
- *           format: date
- *         reportingManager:
- *           type: string
- *         noticePeriod:
- *           type: string
- *         gender:
- *           type: string
- *           enum: [Male, Female, Other]
- *         dateOfBirth:
- *           type: string
- *           format: date
- *         isActive:
- *           type: boolean
+ *           example: ACTIVE
+ *
+ *     Faculty:
+ *       allOf:
+ *         - $ref: '#/components/schemas/FacultyInput'
+ *         - type: object
+ *           properties:
+ *             _id:
+ *               type: string
+ *             userId:
+ *               type: string
+ *             status:
+ *               type: string
+ *               enum: [active, inactive]
+ *             isActive:
+ *               type: boolean
+ *             profileImage:
+ *               type: string
+ *               nullable: true
+ *             documents:
+ *               type: object
+ *               properties:
+ *                 marksheet:
+ *                   type: string
+ *                   nullable: true
+ *                 experienceCertificate:
+ *                   type: string
+ *                   nullable: true
+ *                 degreeCertificate:
+ *                   type: string
+ *                   nullable: true
+ *             createdAt:
+ *               type: string
+ *               format: date-time
+ *             updatedAt:
+ *               type: string
+ *               format: date-time
+ *
  *     FacultyResponse:
  *       type: object
  *       properties:
+ *         success:
+ *           type: boolean
+ *           example: true
  *         message:
  *           type: string
- *         faculty:
+ *           example: Faculty created successfully
+ *         data:
  *           type: object
- *     FacultyBulkUploadResponse:
- *       type: object
- *       properties:
- *         message:
- *           type: string
- *         usersCreated:
- *           type: integer
- *         usersUpdated:
- *           type: integer
- *         facultyCreated:
- *           type: integer
- *         facultyUpdated:
- *           type: integer
- *         failedCount:
- *           type: integer
+ *           properties:
+ *             faculty:
+ *               $ref: '#/components/schemas/Faculty'
+ *
  *     FacultyListResponse:
  *       type: object
  *       properties:
- *         total:
- *           type: integer
- *         faculty:
- *           type: array
- *           items:
- *             type: object
- *     MessageResponse:
- *       type: object
- *       properties:
+ *         success:
+ *           type: boolean
+ *           example: true
  *         message:
  *           type: string
+ *           example: Faculty list retrieved successfully
+ *         data:
+ *           type: object
+ *           properties:
+ *             facultyList:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Faculty'
+ *
+ *     FacultyUploadSummaryResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: true
+ *         message:
+ *           type: string
+ *           example: Faculty upload sync completed
+ *         data:
+ *           type: object
+ *           properties:
+ *             usersCreated:
+ *               type: integer
+ *               example: 10
+ *             usersUpdated:
+ *               type: integer
+ *               example: 3
+ *             facultyCreated:
+ *               type: integer
+ *               example: 9
+ *             facultyUpdated:
+ *               type: integer
+ *               example: 4
+ *             failedCount:
+ *               type: integer
+ *               example: 1
+ *             failedRows:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   row:
+ *                     type: integer
+ *                     example: 5
+ *                   message:
+ *                     type: string
+ *                     example: email, firstName, lastName, employeeId and primaryPhone are required
+ *
+ *     FacultyDashboardStatsResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: true
+ *         message:
+ *           type: string
+ *           example: Dashboard stats retrieved successfully
+ *         data:
+ *           type: object
+ *           properties:
+ *             totalFaculty:
+ *               type: integer
+ *               example: 120
+ *             deansAndHods:
+ *               type: integer
+ *               example: 8
+ *             professors:
+ *               type: integer
+ *               example: 14
+ *             associateAssistant:
+ *               type: integer
+ *               example: 76
+ *             others:
+ *               type: integer
+ *               example: 22
+ *
+ *     DepartmentWiseFacultyCountResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: true
+ *         message:
+ *           type: string
+ *           example: Department wise counts retrieved successfully
+ *         data:
+ *           type: object
+ *           properties:
+ *             result:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   departmentId:
+ *                     type: string
+ *                     example: 65f0425db4d5f9a7d9e1134a
+ *                   departmentName:
+ *                     type: string
+ *                     example: Computer Science and Engineering
+ *                   departmentCode:
+ *                     type: string
+ *                     example: CSE
+ *                   count:
+ *                     type: integer
+ *                     example: 25
+ *
+ *     DepartmentWiseFacultySummaryResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: true
+ *         message:
+ *           type: string
+ *           example: Department wise faculty summary retrieved successfully
+ *         data:
+ *           type: object
+ *           properties:
+ *             department:
+ *               type: object
+ *               properties:
+ *                 _id:
+ *                   type: string
+ *                 name:
+ *                   type: string
+ *                 code:
+ *                   type: string
+ *             total:
+ *               type: integer
+ *               example: 25
+ *             designationSummary:
+ *               type: object
+ *               additionalProperties:
+ *                 type: integer
+ *             categorySummary:
+ *               type: object
+ *               properties:
+ *                 deansAndHods:
+ *                   type: integer
+ *                   example: 2
+ *                 professors:
+ *                   type: integer
+ *                   example: 4
+ *                 associateAssistant:
+ *                   type: integer
+ *                   example: 15
+ *                 others:
+ *                   type: integer
+ *                   example: 4
+ *
+ *     DepartmentWiseFacultyListResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: true
+ *         message:
+ *           type: string
+ *           example: Department wise faculty list retrieved successfully
+ *         data:
+ *           type: object
+ *           properties:
+ *             total:
+ *               type: integer
+ *               example: 25
+ *             faculty:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Faculty'
+ *
+ *     ErrorResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: false
+ *         message:
+ *           type: string
+ *         data:
+ *           type: object
  */
 
 /**
  * @swagger
  * /api/faculty:
  *   post:
- *     summary: Create a faculty user and profile
+ *     summary: Create a faculty record
  *     tags: [Faculty]
  *     description: |
- *       Creates linked records in User and Faculty collections.
- *       If department does not exist and departmentName is given, department is auto-created.
+ *       Creates both `User` (role FACULTY) and `Faculty` records.
  *
- *       **Access:** Authenticated users with role ADMIN only
+ *       **Access:** ADMIN only
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -202,7 +371,7 @@ const upload = multer({ storage: multer.memoryStorage() });
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/FacultyCreateRequest'
+ *             $ref: '#/components/schemas/FacultyInput'
  *     responses:
  *       201:
  *         description: Faculty created successfully
@@ -211,11 +380,15 @@ const upload = multer({ storage: multer.memoryStorage() });
  *             schema:
  *               $ref: '#/components/schemas/FacultyResponse'
  *       400:
- *         description: Missing required fields or duplicate email/employeeId
+ *         description: Validation error or duplicate email/employeeId
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  *       401:
  *         description: Unauthorized
  *       403:
- *         description: Access denied (requires ADMIN)
+ *         description: Forbidden (ADMIN role required)
  *       500:
  *         description: Server error
  */
@@ -228,10 +401,11 @@ router.post('/', protect, authorize('ADMIN'), addFaculty);
  *     summary: Bulk upload faculty from Excel
  *     tags: [Faculty]
  *     description: |
- *       Upload `.xlsx` file as multipart `file` field.
- *       Creates or updates linked User/Faculty records per row and returns row-level failure summary.
+ *       Uploads an Excel file and syncs users/faculty data in bulk.
  *
- *       **Access:** Authenticated users with role ADMIN only
+ *       Required row-level fields: `email`, `firstName`, `lastName`, `employeeId`, `primaryPhone`, `departmentId`.
+ *
+ *       **Access:** ADMIN only
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -246,19 +420,24 @@ router.post('/', protect, authorize('ADMIN'), addFaculty);
  *               file:
  *                 type: string
  *                 format: binary
+ *                 description: Excel file (.xlsx/.xls)
  *     responses:
  *       200:
  *         description: Faculty upload sync completed
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/FacultyBulkUploadResponse'
+ *               $ref: '#/components/schemas/FacultyUploadSummaryResponse'
  *       400:
- *         description: Missing file or malformed Excel
+ *         description: No file uploaded or invalid data in rows
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  *       401:
  *         description: Unauthorized
  *       403:
- *         description: Access denied (requires ADMIN)
+ *         description: Forbidden (ADMIN role required)
  *       500:
  *         description: Server error
  */
@@ -274,12 +453,15 @@ router.post(
  * @swagger
  * /api/faculty/{id}:
  *   put:
- *     summary: Update faculty and linked user details
+ *     summary: Update faculty details
  *     tags: [Faculty]
  *     description: |
- *       Updates Faculty fields plus linked User fields such as email/password/gender/dateOfBirth/isActive.
+ *       Updates faculty and linked user data.
  *
- *       **Access:** Authenticated users with role ADMIN only
+ *       Updatable fields include `departmentId`, `primaryPhone`, `secondaryPhone`,
+ *       `designation`, `employmentStatus`, and basic profile details.
+ *
+ *       **Access:** ADMIN only
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -288,16 +470,71 @@ router.post(
  *         required: true
  *         schema:
  *           type: string
+ *         description: Faculty ObjectId
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/FacultyUpdateRequest'
  *         multipart/form-data:
  *           schema:
  *             type: object
  *             properties:
+ *               salutation:
+ *                 type: string
+ *               firstName:
+ *                 type: string
+ *               lastName:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *               gender:
+ *                 type: string
+ *               dateOfBirth:
+ *                 type: string
+ *                 format: date
+ *               primaryPhone:
+ *                 type: string
+ *                 description: 10-digit mobile number.
+ *               secondaryPhone:
+ *                 type: string
+ *                 nullable: true
+ *                 description: Optional 10-digit mobile number.
+ *               employeeId:
+ *                 type: string
+ *               departmentId:
+ *                 type: string
+ *                 description: Department ObjectId
+ *               designation:
+ *                 type: string
+ *                 enum:
+ *                   - Professor
+ *                   - Associate Professor
+ *                   - Assistant Professor
+ *                   - HOD
+ *                   - Dean
+ *                   - Faculty
+ *                   - Professor of Practice
+ *                   - Lab Technician
+ *                   - Senior Lab Technician
+ *                   - Department Secretary
+ *               qualification:
+ *                 type: string
+ *               workType:
+ *                 type: string
+ *               joiningDate:
+ *                 type: string
+ *                 format: date
+ *               reportingManager:
+ *                 type: string
+ *                 nullable: true
+ *               noticePeriod:
+ *                 type: string
+ *               employmentStatus:
+ *                 type: string
+ *                 enum: [ACTIVE, ON_LEAVE, RESIGNED, RETIRED]
+ *               isActive:
+ *                 type: boolean
  *               marksheet:
  *                 type: string
  *                 format: binary
@@ -310,14 +547,22 @@ router.post(
  *     responses:
  *       200:
  *         description: Faculty updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/FacultyResponse'
  *       400:
- *         description: Invalid update payload or duplicate email/employeeId
+ *         description: Invalid id, validation error, or duplicate constraints
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  *       401:
  *         description: Unauthorized
  *       403:
- *         description: Access denied (requires ADMIN)
+ *         description: Forbidden (ADMIN role required)
  *       404:
- *         description: Faculty not found
+ *         description: Faculty or linked user not found
  *       500:
  *         description: Server error
  */
@@ -340,9 +585,9 @@ router.put(
  *     summary: Delete faculty and linked user
  *     tags: [Faculty]
  *     description: |
- *       Deletes both the faculty profile and linked user account.
+ *       Deletes a faculty record and its linked user account.
  *
- *       **Access:** Authenticated users with role ADMIN only
+ *       **Access:** ADMIN only
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -351,17 +596,29 @@ router.put(
  *         required: true
  *         schema:
  *           type: string
+ *         description: Faculty ObjectId
  *     responses:
  *       200:
  *         description: Faculty deleted successfully
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/MessageResponse'
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Faculty deleted successfully
+ *                 data:
+ *                   type: object
+ *       400:
+ *         description: Invalid faculty id
  *       401:
  *         description: Unauthorized
  *       403:
- *         description: Access denied (requires ADMIN)
+ *         description: Forbidden (ADMIN role required)
  *       404:
  *         description: Faculty not found
  *       500:
@@ -376,10 +633,11 @@ router.delete('/:id', protect, authorize('ADMIN'), deleteFaculty);
  *     summary: Get all faculty
  *     tags: [Faculty]
  *     description: |
- *       Returns all faculty with linked user and department data.
- *       Optional filters: `departmentId`, `designation`, `employmentStatus`.
+ *       Returns faculty list with optional filters.
  *
- *       **Access:** Authenticated users with role FACULTY or ADMIN
+ *       Filter by `departmentId`, `designation`, `employmentStatus`.
+ *
+ *       **Access:** FACULTY or ADMIN
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -387,6 +645,7 @@ router.delete('/:id', protect, authorize('ADMIN'), deleteFaculty);
  *         name: departmentId
  *         schema:
  *           type: string
+ *         description: Department ObjectId
  *       - in: query
  *         name: designation
  *         schema:
@@ -398,17 +657,17 @@ router.delete('/:id', protect, authorize('ADMIN'), deleteFaculty);
  *           enum: [ACTIVE, ON_LEAVE, RESIGNED, RETIRED]
  *     responses:
  *       200:
- *         description: Faculty list fetched
+ *         description: Faculty list retrieved successfully
  *         content:
  *           application/json:
  *             schema:
- *               type: array
- *               items:
- *                 type: object
+ *               $ref: '#/components/schemas/FacultyListResponse'
+ *       400:
+ *         description: Invalid departmentId
  *       401:
  *         description: Unauthorized
  *       403:
- *         description: Access denied
+ *         description: Forbidden
  *       500:
  *         description: Server error
  */
@@ -418,21 +677,25 @@ router.get('/', protect, authorize('FACULTY', 'ADMIN'), getAllFaculty);
  * @swagger
  * /api/faculty/department-wise:
  *   get:
- *     summary: Get department-wise faculty count
+ *     summary: Get department-wise faculty counts
  *     tags: [Faculty]
  *     description: |
- *       Aggregates total faculty by department.
+ *       Returns faculty count grouped by `departmentId`.
  *
- *       **Access:** Authenticated users with role FACULTY or ADMIN
+ *       **Access:** FACULTY or ADMIN
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Department-wise faculty count
+ *         description: Department wise counts retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/DepartmentWiseFacultyCountResponse'
  *       401:
  *         description: Unauthorized
  *       403:
- *         description: Access denied
+ *         description: Forbidden
  *       500:
  *         description: Server error
  */
@@ -447,13 +710,14 @@ router.get(
  * @swagger
  * /api/faculty/department-wise/{department}:
  *   get:
- *     summary: Get designation summary for a department
+ *     summary: Get department-wise designation summary
  *     tags: [Faculty]
  *     description: |
- *       Department can be ObjectId, name, shortName, or code.
- *       Returns both full designation breakdown and category summary for professor hierarchy.
+ *       Returns designation/category summary for a department.
  *
- *       **Access:** Authenticated users with role FACULTY or ADMIN
+ *       The `department` path value can be a Department ObjectId.
+ *
+ *       **Access:** FACULTY or ADMIN
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -462,13 +726,18 @@ router.get(
  *         required: true
  *         schema:
  *           type: string
+ *         description: Department ObjectId
  *     responses:
  *       200:
- *         description: Department designation summary fetched
+ *         description: Department wise faculty summary retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/DepartmentWiseFacultySummaryResponse'
  *       401:
  *         description: Unauthorized
  *       403:
- *         description: Access denied
+ *         description: Forbidden
  *       404:
  *         description: Department not found
  *       500:
@@ -485,12 +754,14 @@ router.get(
  * @swagger
  * /api/faculty/department-wise/{department}/list:
  *   get:
- *     summary: Get faculty list of a department
+ *     summary: Get department-wise faculty list
  *     tags: [Faculty]
  *     description: |
- *       Department can be ObjectId, name, shortName, or code.
+ *       Returns all faculty records for a department.
  *
- *       **Access:** Authenticated users with role FACULTY or ADMIN
+ *       The `department` path value can be a Department ObjectId.
+ *
+ *       **Access:** FACULTY or ADMIN
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -499,17 +770,18 @@ router.get(
  *         required: true
  *         schema:
  *           type: string
+ *         description: Department ObjectId
  *     responses:
  *       200:
- *         description: Department faculty list fetched
+ *         description: Department wise faculty list retrieved successfully
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/FacultyListResponse'
+ *               $ref: '#/components/schemas/DepartmentWiseFacultyListResponse'
  *       401:
  *         description: Unauthorized
  *       403:
- *         description: Access denied
+ *         description: Forbidden
  *       404:
  *         description: Department not found
  *       500:
@@ -526,21 +798,25 @@ router.get(
  * @swagger
  * /api/faculty/dashboard/stats:
  *   get:
- *     summary: Faculty dashboard summary stats
+ *     summary: Get faculty dashboard stats
  *     tags: [Faculty]
  *     description: |
- *       Returns overall faculty count and grouped designation statistics.
+ *       Returns faculty dashboard aggregates used by the UI.
  *
- *       **Access:** Authenticated users with role FACULTY or ADMIN
+ *       **Access:** FACULTY or ADMIN
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Dashboard stats fetched
+ *         description: Dashboard stats retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/FacultyDashboardStatsResponse'
  *       401:
  *         description: Unauthorized
  *       403:
- *         description: Access denied
+ *         description: Forbidden
  *       500:
  *         description: Server error
  */

@@ -5,12 +5,12 @@ const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 export const createAcademicYear = async (req, res) => {
   try {
-    const { startYear, endYear, startDate, endDate, isActive } = req.body;
+    const { startYear, endYear, startMonth, endMonth, isActive } = req.body;
 
-    if (!startYear || !endYear || !startDate || !endDate) {
+    if (startYear == null || endYear == null) {
       return res.status(400).json({
         success: false,
-        message: 'startYear, endYear, startDate, and endDate are required',
+        message: 'startYear and endYear are required',
         data: {}
       });
     }
@@ -35,8 +35,8 @@ export const createAcademicYear = async (req, res) => {
       name,
       startYear,
       endYear,
-      startDate,
-      endDate,
+      startMonth,
+      endMonth,
       isActive: isActive || false
     });
 
@@ -132,6 +132,37 @@ export const updateAcademicYear = async (req, res) => {
 
     if (updates.isActive === true) {
       await AcademicYear.updateMany({ _id: { $ne: id } }, { isActive: false });
+    }
+
+    if (updates.startYear !== undefined || updates.endYear !== undefined) {
+      const existingAcademicYear = await AcademicYear.findById(id);
+
+      if (!existingAcademicYear) {
+        return res.status(404).json({
+          success: false,
+          message: 'Academic Year not found',
+          data: {}
+        });
+      }
+
+      const effectiveStartYear =
+        updates.startYear ?? existingAcademicYear.startYear;
+      const effectiveEndYear = updates.endYear ?? existingAcademicYear.endYear;
+
+      updates.name = `${effectiveStartYear}-${String(effectiveEndYear).slice(-2)}`;
+
+      const duplicateName = await AcademicYear.findOne({
+        _id: { $ne: id },
+        name: updates.name
+      });
+
+      if (duplicateName) {
+        return res.status(409).json({
+          success: false,
+          message: 'Academic Year already exists',
+          data: {}
+        });
+      }
     }
 
     const academicYear = await AcademicYear.findByIdAndUpdate(id, updates, {

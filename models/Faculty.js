@@ -28,10 +28,17 @@ const facultySchema = new mongoose.Schema(
       required: true,
       trim: true
     },
-    phone: {
+    primaryPhone: {
       type: String,
+      required: true,
       trim: true,
       match: /^[0-9]{10}$/
+    },
+    secondaryPhone: {
+      type: String,
+      trim: true,
+      match: /^[0-9]{10}$/,
+      default: null
     },
     employeeId: {
       type: String,
@@ -112,11 +119,12 @@ facultySchema.virtual('fullName').get(function () {
   return `${this.firstName} ${this.lastName}`;
 });
 
-facultySchema.pre('validate', function () {
+facultySchema.pre('validate', function (next) {
   if (this.employmentStatus) {
     this.isActive = !['RESIGNED', 'RETIRED'].includes(this.employmentStatus);
     this.status = this.isActive ? 'active' : 'inactive';
   }
+  next();
 });
 
 facultySchema.set('toJSON', { virtuals: true });

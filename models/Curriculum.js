@@ -1,16 +1,5 @@
 import mongoose from 'mongoose';
 
-const curriculumSemesterSubjectSchema = new mongoose.Schema(
-  {
-    subjectId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Subject',
-      required: true
-    }
-  },
-  { _id: false }
-);
-
 const curriculumSemesterSchema = new mongoose.Schema(
   {
     semesterNumber: {
@@ -18,26 +7,12 @@ const curriculumSemesterSchema = new mongoose.Schema(
       required: true,
       min: 1
     },
-    subjects: {
-      type: [curriculumSemesterSubjectSchema],
-      default: []
-    }
-  },
-  { _id: false }
-);
-
-const legacyCurriculumSubjectSchema = new mongoose.Schema(
-  {
-    subjectId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Subject',
-      required: true
-    },
-    semesterNumber: {
-      type: Number,
-      required: true,
-      min: 1
-    }
+    subjects: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Subject'
+      }
+    ]
   },
   { _id: false }
 );
@@ -50,24 +25,16 @@ const curriculumSchema = new mongoose.Schema(
       required: true,
       index: true
     },
-
     regulationId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Regulation',
       required: true,
       index: true
     },
-
     semesters: {
       type: [curriculumSemesterSchema],
       default: []
     },
-
-    subjects: {
-      type: [legacyCurriculumSubjectSchema],
-      default: []
-    },
-
     isActive: {
       type: Boolean,
       default: true
@@ -78,23 +45,18 @@ const curriculumSchema = new mongoose.Schema(
 
 curriculumSchema.index({ departmentId: 1, regulationId: 1 }, { unique: true });
 
-curriculumSchema.pre('validate', function () {
-  if (
-    (!this.semesters || this.semesters.length === 0) &&
-    this.subjects.length
-  ) {
-    const grouped = this.subjects.reduce((acc, row) => {
-      if (!acc[row.semesterNumber]) acc[row.semesterNumber] = [];
-      acc[row.semesterNumber].push({ subjectId: row.subjectId });
-      return acc;
-    }, {});
+curriculumSchema.index({
+  departmentId: 1,
+  regulationId: 1,
+  'semesters.semesterNumber': 1
+});
 
-    this.semesters = Object.keys(grouped)
-      .map((semesterNumber) => ({
-        semesterNumber: Number(semesterNumber),
-        subjects: grouped[semesterNumber]
-      }))
-      .sort((a, b) => a.semesterNumber - b.semesterNumber);
+curriculumSchema.pre('validate', function () {
+  const semesters = this.semesters.map((s) => s.semesterNumber);
+  const unique = new Set(semesters);
+
+  if (unique.size !== semesters.length) {
+    throw new Error('Duplicate semesterNumber in curriculum');
   }
 });
 

@@ -19,6 +19,10 @@ import sectionRoutes from './routes/section.routes.js';
 import regulationRoutes from './routes/regulation.routes.js';
 import curriculumRoutes from './routes/curriculum.routes.js';
 import subjectRoutes from './routes/subject.routes.js';
+import academicYearRoutes from './routes/academicYear.routes.js';
+import batchProgramRoutes from './routes/batchProgram.routes.js';
+import facultyAssignmentRoutes from './routes/facultyAssignment.routes.js';
+import studentAcademicRecordRoutes from './routes/studentAcademicRecord.routes.js';
 import globalErrorHandler from './middleware/error.middleware.js';
 
 const app = express();
@@ -45,6 +49,10 @@ app.use('/api/sections', sectionRoutes);
 app.use('/api/regulations', regulationRoutes);
 app.use('/api/curriculums', curriculumRoutes);
 app.use('/api/subjects', subjectRoutes);
+app.use('/api/academic-years', academicYearRoutes);
+app.use('/api/batch-programs', batchProgramRoutes);
+app.use('/api/faculty-assignments', facultyAssignmentRoutes);
+app.use('/api/student-academic-records', studentAcademicRecordRoutes);
 
 app.use(globalErrorHandler);
 

@@ -10,20 +10,18 @@ const regulationSchema = new mongoose.Schema(
       uppercase: true,
       index: true
     },
-
     startYear: {
       type: Number,
       required: true,
       index: true,
       min: 1900
     },
-
     totalSemesters: {
       type: Number,
       default: 8,
-      min: 1
+      min: 1,
+      max: 8
     },
-
     isActive: {
       type: Boolean,
       default: true,
@@ -33,10 +31,8 @@ const regulationSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/* ---------------- INDEXES ---------------- */
 regulationSchema.index({ startYear: 1, totalSemesters: 1 });
 
-/* ---------------- MIDDLEWARE ---------------- */
 regulationSchema.pre('validate', function () {
   if (!this.name && this.startYear) {
     this.name = `R${this.startYear}`;

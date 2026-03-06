@@ -8,69 +8,37 @@ const classroomMemberSchema = new mongoose.Schema(
       required: true,
       index: true
     },
-
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
-      index: true
-    },
-
     studentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Student',
-      default: null,
-      index: true
-    },
-
-    facultyId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Faculty',
-      default: null,
-      index: true
-    },
-
-    role: {
-      type: String,
-      enum: ['student', 'faculty'],
       required: true,
       index: true
     },
-
-    facultyAccessLevel: {
+    role: {
       type: String,
-      enum: ['PRIMARY', 'SECONDARY'],
-      default: null
+      enum: ['student', 'rep'],
+      default: 'student',
+      index: true
     },
-
     joinMethod: {
       type: String,
       enum: ['auto', 'invite', 'self'],
-      required: true
+      default: 'auto'
     },
-
-    isActive: {
-      type: Boolean,
-      default: true,
+    status: {
+      type: String,
+      enum: ['active', 'removed'],
+      default: 'active',
       index: true
+    },
+    joinedAt: {
+      type: Date,
+      default: Date.now
     }
   },
   { timestamps: true }
 );
 
-/* ---------------- INDEXES ---------------- */
-classroomMemberSchema.index({ classroomId: 1, userId: 1 }, { unique: true });
-classroomMemberSchema.index({ classroomId: 1, role: 1 });
-
-/* ---------------- MIDDLEWARE ---------------- */
-classroomMemberSchema.pre('validate', function () {
-  if (this.role === 'student' && !this.studentId) {
-    throw new Error('studentId is required when role is student');
-  }
-
-  if (this.role === 'faculty' && !this.facultyId) {
-    throw new Error('facultyId is required when role is faculty');
-  }
-});
+classroomMemberSchema.index({ classroomId: 1, studentId: 1 }, { unique: true });
 
 export default mongoose.model('ClassroomMember', classroomMemberSchema);

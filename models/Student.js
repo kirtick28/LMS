@@ -8,40 +8,38 @@ const studentSchema = new mongoose.Schema(
       required: true,
       unique: true
     },
-
     departmentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Department',
       required: true,
       index: true
     },
-
     batchId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Batch',
       required: true,
       index: true
     },
-
     sectionId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Section',
       required: true,
       index: true
     },
-
+    admissionYear: {
+      type: Number,
+      required: true
+    },
     firstName: {
       type: String,
       required: true,
       trim: true
     },
-
     lastName: {
       type: String,
       required: true,
       trim: true
     },
-
     registerNumber: {
       type: String,
       required: true,
@@ -50,58 +48,24 @@ const studentSchema = new mongoose.Schema(
       trim: true,
       index: true
     },
-
     rollNumber: {
       type: String,
       trim: true
     },
-
-    gender: {
-      type: String,
-      enum: ['Male', 'Female', 'Other']
-    },
-
-    dateOfBirth: {
-      type: Date
-    },
-
-    semesterNumber: {
-      type: Number,
-      min: 1,
-      max: 12,
-      default: 1,
-      index: true
-    },
-
-    academicYear: {
-      startYear: {
-        type: Number,
-        index: true
-      },
-      endYear: {
-        type: Number,
-        index: true
-      },
-      name: {
-        type: String,
-        trim: true,
-        index: true
-      }
-    },
-
     entryType: {
       type: String,
       enum: ['REGULAR', 'LATERAL'],
       default: 'REGULAR'
     },
-
-    academicStatus: {
+    status: {
       type: String,
-      enum: ['ACTIVE', 'DISCONTINUED', 'DROPPED', 'GRADUATED', 'SUSPENDED'],
-      default: 'ACTIVE',
+      enum: ['active', 'graduated', 'dropped'],
+      default: 'active',
       index: true
     },
-
+    semesterNumber: {
+      type: Number
+    },
     isActive: {
       type: Boolean,
       default: true,
@@ -111,27 +75,17 @@ const studentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/* ---------------- COMPOUND INDEXES ---------------- */
-studentSchema.index({ batchId: 1, academicStatus: 1 });
-studentSchema.index({ departmentId: 1, academicStatus: 1 });
-studentSchema.index({ sectionId: 1, semesterNumber: 1, isActive: 1 });
-studentSchema.index({
-  batchId: 1,
-  semesterNumber: 1,
-  'academicYear.startYear': 1
-});
+studentSchema.index({ batchId: 1, status: 1 });
+studentSchema.index({ departmentId: 1, status: 1 });
+studentSchema.index({ sectionId: 1, isActive: 1 });
 
-/* ---------------- VIRTUALS ---------------- */
 studentSchema.virtual('fullName').get(function () {
   return `${this.firstName} ${this.lastName}`;
 });
 
-/* ---------------- MIDDLEWARE ---------------- */
 studentSchema.pre('validate', function () {
-  if (this.academicStatus) {
-    this.isActive = !['DISCONTINUED', 'DROPPED', 'GRADUATED'].includes(
-      this.academicStatus
-    );
+  if (this.status) {
+    this.isActive = !['graduated', 'dropped'].includes(this.status);
   }
 });
 

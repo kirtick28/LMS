@@ -4,10 +4,6 @@ import Department from '../models/Department.js';
 import Regulation from '../models/Regulation.js';
 import Subject from '../models/Subject.js';
 
-/* =========================
-   HELPERS
-========================= */
-
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 const validateSemesters = async (semesters = []) => {
@@ -33,12 +29,12 @@ const validateSemesters = async (semesters = []) => {
       throw new Error('subjects must be an array');
     }
 
-    for (const item of semester.subjects) {
-      if (!item.subjectId || !isValidObjectId(item.subjectId)) {
+    for (const subjectId of semester.subjects) {
+      if (!subjectId || !isValidObjectId(subjectId)) {
         throw new Error('Invalid subjectId in semesters');
       }
 
-      subjectIds.push(item.subjectId);
+      subjectIds.push(subjectId);
     }
   }
 
@@ -72,26 +68,32 @@ const isBadRequestError = (error) => {
   );
 };
 
-/* =========================
-   CREATE CURRICULUM
-========================= */
-
 export const createCurriculum = async (req, res) => {
   try {
     const { departmentId, regulationId, semesters, isActive } = req.body;
 
     if (!departmentId || !regulationId) {
-      return res
-        .status(400)
-        .json({ message: 'departmentId and regulationId are required' });
+      return res.status(400).json({
+        success: false,
+        message: 'departmentId and regulationId are required',
+        data: {}
+      });
     }
 
     if (!isValidObjectId(departmentId)) {
-      return res.status(400).json({ message: 'Invalid departmentId' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid departmentId',
+        data: {}
+      });
     }
 
     if (!isValidObjectId(regulationId)) {
-      return res.status(400).json({ message: 'Invalid regulationId' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid regulationId',
+        data: {}
+      });
     }
 
     const [department, regulation] = await Promise.all([
@@ -100,11 +102,19 @@ export const createCurriculum = async (req, res) => {
     ]);
 
     if (!department) {
-      return res.status(400).json({ message: 'Department not found' });
+      return res.status(400).json({
+        success: false,
+        message: 'Department not found',
+        data: {}
+      });
     }
 
     if (!regulation) {
-      return res.status(400).json({ message: 'Regulation not found' });
+      return res.status(400).json({
+        success: false,
+        message: 'Regulation not found',
+        data: {}
+      });
     }
 
     await validateSemesters(semesters || []);
@@ -116,7 +126,9 @@ export const createCurriculum = async (req, res) => {
 
     if (existing) {
       return res.status(409).json({
-        message: 'Curriculum already exists for this department and regulation'
+        success: false,
+        message: 'Curriculum already exists for this department and regulation',
+        data: {}
       });
     }
 
@@ -128,17 +140,18 @@ export const createCurriculum = async (req, res) => {
     });
 
     return res.status(201).json({
+      success: true,
       message: 'Curriculum created successfully',
-      curriculum
+      data: { curriculum }
     });
   } catch (error) {
-    return res.status(400).json({ message: error.message });
+    return res.status(400).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };
-
-/* =========================
-   GET ALL CURRICULUMS
-========================= */
 
 export const getAllCurriculums = async (req, res) => {
   try {
@@ -161,47 +174,61 @@ export const getAllCurriculums = async (req, res) => {
     const curriculums = await Curriculum.find(filter)
       .populate('departmentId', 'name code')
       .populate('regulationId', 'name startYear totalSemesters')
-      .populate('semesters.subjects.subjectId', 'name code courseType credits')
+      .populate('semesters.subjects', 'name code courseType credits')
       .sort({ createdAt: -1 });
 
-    return res.json(curriculums);
+    return res.json({
+      success: true,
+      message: 'Curriculums retrieved successfully',
+      data: { curriculums }
+    });
   } catch (error) {
-    return res.status(400).json({ message: error.message });
+    return res.status(400).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };
-
-/* =========================
-   GET CURRICULUM BY ID
-========================= */
 
 export const getCurriculumById = async (req, res) => {
   try {
     const { id } = req.params;
 
     if (!isValidObjectId(id)) {
-      return res.status(400).json({ message: 'Invalid curriculum id' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid curriculum id',
+        data: {}
+      });
     }
 
     const curriculum = await Curriculum.findById(id)
       .populate('departmentId', 'name code')
       .populate('regulationId', 'name startYear totalSemesters')
-      .populate('semesters.subjects.subjectId', 'name code courseType credits');
+      .populate('semesters.subjects', 'name code courseType credits');
 
     if (!curriculum) {
-      return res.status(404).json({ message: 'Curriculum not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Curriculum not found',
+        data: {}
+      });
     }
 
-    return res.json(curriculum);
+    return res.json({
+      success: true,
+      message: 'Curriculum retrieved successfully',
+      data: { curriculum }
+    });
   } catch (error) {
-    return res
-      .status(isBadRequestError(error) ? 400 : 500)
-      .json({ message: error.message });
+    return res.status(isBadRequestError(error) ? 400 : 500).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };
-
-/* =========================
-   UPDATE CURRICULUM
-========================= */
 
 export const updateCurriculum = async (req, res) => {
   try {
@@ -209,30 +236,50 @@ export const updateCurriculum = async (req, res) => {
     const updates = { ...req.body };
 
     if (!isValidObjectId(id)) {
-      return res.status(400).json({ message: 'Invalid curriculum id' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid curriculum id',
+        data: {}
+      });
     }
 
     if (updates.departmentId) {
       if (!isValidObjectId(updates.departmentId)) {
-        return res.status(400).json({ message: 'Invalid departmentId' });
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid departmentId',
+          data: {}
+        });
       }
 
       const department = await Department.findById(updates.departmentId);
 
       if (!department) {
-        return res.status(400).json({ message: 'Department not found' });
+        return res.status(400).json({
+          success: false,
+          message: 'Department not found',
+          data: {}
+        });
       }
     }
 
     if (updates.regulationId) {
       if (!isValidObjectId(updates.regulationId)) {
-        return res.status(400).json({ message: 'Invalid regulationId' });
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid regulationId',
+          data: {}
+        });
       }
 
       const regulation = await Regulation.findById(updates.regulationId);
 
       if (!regulation) {
-        return res.status(400).json({ message: 'Regulation not found' });
+        return res.status(400).json({
+          success: false,
+          message: 'Regulation not found',
+          data: {}
+        });
       }
     }
 
@@ -246,43 +293,62 @@ export const updateCurriculum = async (req, res) => {
     })
       .populate('departmentId', 'name code')
       .populate('regulationId', 'name startYear totalSemesters')
-      .populate('semesters.subjects.subjectId', 'name code courseType credits');
+      .populate('semesters.subjects', 'name code courseType credits');
 
     if (!curriculum) {
-      return res.status(404).json({ message: 'Curriculum not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Curriculum not found',
+        data: {}
+      });
     }
 
     return res.json({
+      success: true,
       message: 'Curriculum updated successfully',
-      curriculum
+      data: { curriculum }
     });
   } catch (error) {
-    return res.status(400).json({ message: error.message });
+    return res.status(400).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };
-
-/* =========================
-   DELETE CURRICULUM
-========================= */
 
 export const deleteCurriculum = async (req, res) => {
   try {
     const { id } = req.params;
 
     if (!isValidObjectId(id)) {
-      return res.status(400).json({ message: 'Invalid curriculum id' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid curriculum id',
+        data: {}
+      });
     }
 
     const curriculum = await Curriculum.findByIdAndDelete(id);
 
     if (!curriculum) {
-      return res.status(404).json({ message: 'Curriculum not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Curriculum not found',
+        data: {}
+      });
     }
 
     return res.json({
-      message: 'Curriculum deleted successfully'
+      success: true,
+      message: 'Curriculum deleted successfully',
+      data: { curriculum }
     });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };

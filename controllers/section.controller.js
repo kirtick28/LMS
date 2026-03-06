@@ -1,87 +1,99 @@
 import mongoose from 'mongoose';
 import Section from '../models/Section.js';
-import Batch from '../models/Batch.js';
+import BatchProgram from '../models/BatchProgram.js';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
-const batchPopulateConfig = {
-  path: 'batchId',
-  select: 'name startYear endYear programDuration departmentId regulationId',
+const populateConfig = {
+  path: 'batchProgramId',
   populate: [
-    {
-      path: 'departmentId',
-      select: 'name code'
-    },
-    {
-      path: 'regulationId',
-      select: 'name startYear totalSemesters'
-    }
+    { path: 'batchId', select: 'name startYear endYear' },
+    { path: 'departmentId', select: 'name code' },
+    { path: 'regulationId', select: 'name startYear' }
   ]
 };
 
-/* ============================
-   CREATE SECTION
-============================ */
 export const createSection = async (req, res) => {
   try {
-    const { name, batchId, capacity, isActive } = req.body;
+    const { name, batchProgramId, capacity, isActive } = req.body;
 
-    if (!name || !batchId) {
-      return res.status(400).json({ message: 'name and batchId are required' });
+    if (!name || !batchProgramId) {
+      return res.status(400).json({
+        success: false,
+        message: 'name and batchProgramId are required',
+        data: {}
+      });
     }
 
-    if (!isValidObjectId(batchId)) {
-      return res.status(400).json({ message: 'Invalid batchId' });
+    if (!isValidObjectId(batchProgramId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid batchProgramId',
+        data: {}
+      });
     }
 
-    const batch = await Batch.findById(batchId);
-    if (!batch) {
-      return res.status(400).json({ message: 'Batch not found' });
+    const batchProgram = await BatchProgram.findById(batchProgramId);
+
+    if (!batchProgram) {
+      return res.status(404).json({
+        success: false,
+        message: 'BatchProgram not found',
+        data: {}
+      });
     }
 
     const normalizedName = String(name).trim().toUpperCase();
 
     const existing = await Section.findOne({
       name: normalizedName,
-      batchId
+      batchProgramId
     });
 
     if (existing) {
-      return res
-        .status(409)
-        .json({ message: 'Section already exists in this batch' });
+      return res.status(409).json({
+        success: false,
+        message: 'Section already exists for this BatchProgram',
+        data: {}
+      });
     }
 
     const section = await Section.create({
       name: normalizedName,
-      batchId,
+      batchProgramId,
       capacity,
       isActive
     });
 
     return res.status(201).json({
+      success: true,
       message: 'Section created successfully',
-      section
+      data: { section }
     });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };
 
-/* ============================
-   GET ALL SECTIONS
-============================ */
 export const getAllSections = async (req, res) => {
   try {
-    const { batchId, isActive } = req.query;
+    const { batchProgramId, isActive } = req.query;
 
     const filter = {};
 
-    if (batchId) {
-      if (!isValidObjectId(batchId)) {
-        return res.status(400).json({ message: 'Invalid batchId' });
+    if (batchProgramId) {
+      if (!isValidObjectId(batchProgramId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid batchProgramId',
+          data: {}
+        });
       }
-      filter.batchId = batchId;
+      filter.batchProgramId = batchProgramId;
     }
 
     if (isActive !== undefined) {
@@ -89,125 +101,176 @@ export const getAllSections = async (req, res) => {
     }
 
     const sections = await Section.find(filter)
-      .populate(batchPopulateConfig)
+      .populate(populateConfig)
       .sort({ name: 1 });
 
-    return res.json(sections);
+    return res.json({
+      success: true,
+      message: 'Sections retrieved successfully',
+      data: { sections }
+    });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };
 
-/* ============================
-   GET SECTION BY ID
-============================ */
 export const getSectionById = async (req, res) => {
   try {
     const { id } = req.params;
 
     if (!isValidObjectId(id)) {
-      return res.status(400).json({ message: 'Invalid section id' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid section id',
+        data: {}
+      });
     }
 
-    const section = await Section.findById(id).populate(batchPopulateConfig);
+    const section = await Section.findById(id).populate(populateConfig);
 
     if (!section) {
-      return res.status(404).json({ message: 'Section not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Section not found',
+        data: {}
+      });
     }
 
-    return res.json(section);
+    return res.json({
+      success: true,
+      message: 'Section retrieved successfully',
+      data: { section }
+    });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };
 
-/* ============================
-   UPDATE SECTION
-============================ */
 export const updateSection = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = { ...req.body };
 
     if (!isValidObjectId(id)) {
-      return res.status(400).json({ message: 'Invalid section id' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid section id',
+        data: {}
+      });
     }
 
-    if (updates.batchId) {
-      if (!isValidObjectId(updates.batchId)) {
-        return res.status(400).json({ message: 'Invalid batchId' });
-      }
-
-      const batch = await Batch.findById(updates.batchId);
-      if (!batch) {
-        return res.status(400).json({ message: 'Batch not found' });
-      }
+    if (updates.batchProgramId && !isValidObjectId(updates.batchProgramId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid batchProgramId',
+        data: {}
+      });
     }
 
     if (updates.name) {
       updates.name = String(updates.name).trim().toUpperCase();
     }
 
-    if (updates.name || updates.batchId) {
-      const current = await Section.findById(id);
+    const current = await Section.findById(id);
 
-      if (!current) {
-        return res.status(404).json({ message: 'Section not found' });
+    if (!current) {
+      return res.status(404).json({
+        success: false,
+        message: 'Section not found',
+        data: {}
+      });
+    }
+
+    if (updates.batchProgramId) {
+      const batchProgram = await BatchProgram.findById(updates.batchProgramId);
+      if (!batchProgram) {
+        return res.status(404).json({
+          success: false,
+          message: 'BatchProgram not found',
+          data: {}
+        });
       }
+    }
 
-      const targetName = updates.name || current.name;
-      const targetBatchId = updates.batchId || current.batchId;
+    const targetName = updates.name || current.name;
+    const targetBatchProgramId =
+      updates.batchProgramId || current.batchProgramId;
 
+    if (updates.name || updates.batchProgramId) {
       const duplicate = await Section.findOne({
         _id: { $ne: id },
         name: targetName,
-        batchId: targetBatchId
+        batchProgramId: targetBatchProgramId
       });
 
       if (duplicate) {
-        return res
-          .status(409)
-          .json({ message: 'Section already exists in this batch' });
+        return res.status(409).json({
+          success: false,
+          message: 'Section already exists for this BatchProgram',
+          data: {}
+        });
       }
     }
 
     const section = await Section.findByIdAndUpdate(id, updates, {
       new: true,
       runValidators: true
-    }).populate(batchPopulateConfig);
-
-    if (!section) {
-      return res.status(404).json({ message: 'Section not found' });
-    }
+    }).populate(populateConfig);
 
     return res.json({
+      success: true,
       message: 'Section updated successfully',
-      section
+      data: { section }
     });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };
 
-/* ============================
-   DELETE SECTION
-============================ */
 export const deleteSection = async (req, res) => {
   try {
     const { id } = req.params;
 
     if (!isValidObjectId(id)) {
-      return res.status(400).json({ message: 'Invalid section id' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid section id',
+        data: {}
+      });
     }
 
     const section = await Section.findByIdAndDelete(id);
 
     if (!section) {
-      return res.status(404).json({ message: 'Section not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Section not found',
+        data: {}
+      });
     }
 
-    return res.json({ message: 'Section deleted successfully' });
+    return res.json({
+      success: true,
+      message: 'Section deleted successfully',
+      data: {}
+    });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      data: {}
+    });
   }
 };

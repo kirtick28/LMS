@@ -8,20 +8,17 @@ const sectionSchema = new mongoose.Schema(
       uppercase: true,
       trim: true
     },
-
-    batchId: {
+    batchProgramId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Batch',
+      ref: 'BatchProgram',
       required: true,
       index: true
     },
-
     capacity: {
       type: Number,
       default: 60,
       min: 1
     },
-
     isActive: {
       type: Boolean,
       default: true,
@@ -31,11 +28,9 @@ const sectionSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/* ---------------- INDEXES ---------------- */
-sectionSchema.index({ name: 1, batchId: 1 }, { unique: true });
-sectionSchema.index({ batchId: 1, isActive: 1 });
+sectionSchema.index({ name: 1, batchProgramId: 1 }, { unique: true });
+sectionSchema.index({ batchProgramId: 1, isActive: 1 });
 
-/* ---------------- MIDDLEWARE ---------------- */
 sectionSchema.pre('validate', function () {
   if (this.name) {
     this.name = String(this.name).trim().toUpperCase();

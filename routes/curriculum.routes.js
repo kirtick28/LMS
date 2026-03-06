@@ -21,18 +21,10 @@ const router = express.Router();
  * @swagger
  * components:
  *   schemas:
- *     CurriculumSubjectInput:
- *       type: object
- *       required:
- *         - subjectId
- *       properties:
- *         subjectId:
- *           type: string
- *         category:
- *           type: string
- *           example: Core
  *     CurriculumSemesterInput:
  *       type: object
+ *       additionalProperties: false
+ *       description: Semester payload with subject references only (no category field)
  *       required:
  *         - semesterNumber
  *         - subjects
@@ -43,10 +35,36 @@ const router = express.Router();
  *           example: 1
  *         subjects:
  *           type: array
+ *           description: Array of Subject ObjectIds for this semester
  *           items:
- *             $ref: '#/components/schemas/CurriculumSubjectInput'
+ *             type: string
+ *             description: Subject ObjectId
+ *     CurriculumSemesterResponse:
+ *       type: object
+ *       properties:
+ *         semesterNumber:
+ *           type: integer
+ *           minimum: 1
+ *         subjects:
+ *           type: array
+ *           description: Populated subjects for this semester
+ *           items:
+ *             type: object
+ *             properties:
+ *               _id:
+ *                 type: string
+ *               name:
+ *                 type: string
+ *               code:
+ *                 type: string
+ *               courseType:
+ *                 type: string
+ *               credits:
+ *                 type: number
  *     CurriculumCreateRequest:
  *       type: object
+ *       additionalProperties: false
+ *       description: Create payload for curriculum; semesters include only subjects array and semesterNumber
  *       required:
  *         - departmentId
  *         - regulationId
@@ -64,6 +82,8 @@ const router = express.Router();
  *           example: true
  *     CurriculumUpdateRequest:
  *       type: object
+ *       additionalProperties: false
+ *       description: Update payload for curriculum; no category field is accepted in semesters
  *       properties:
  *         departmentId:
  *           type: string
@@ -75,13 +95,67 @@ const router = express.Router();
  *             $ref: '#/components/schemas/CurriculumSemesterInput'
  *         isActive:
  *           type: boolean
+ *     CurriculumData:
+ *       type: object
+ *       properties:
+ *         _id:
+ *           type: string
+ *         departmentId:
+ *           type: object
+ *           properties:
+ *             _id:
+ *               type: string
+ *             name:
+ *               type: string
+ *             code:
+ *               type: string
+ *         regulationId:
+ *           type: object
+ *           properties:
+ *             _id:
+ *               type: string
+ *             name:
+ *               type: string
+ *             startYear:
+ *               type: integer
+ *             totalSemesters:
+ *               type: integer
+ *         semesters:
+ *           type: array
+ *           items:
+ *             $ref: '#/components/schemas/CurriculumSemesterResponse'
+ *         isActive:
+ *           type: boolean
+ *         createdAt:
+ *           type: string
+ *           format: date-time
+ *         updatedAt:
+ *           type: string
+ *           format: date-time
  *     CurriculumResponse:
  *       type: object
  *       properties:
+ *         success:
+ *           type: boolean
  *         message:
  *           type: string
- *         curriculum:
+ *         data:
  *           type: object
+ *           properties:
+ *             curriculum:
+ *               $ref: '#/components/schemas/CurriculumData'
+ *     CurriculumListResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *         data:
+ *           type: object
+ *           properties:
+ *             curriculums:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/CurriculumData'
  */
 
 /**
@@ -93,6 +167,7 @@ const router = express.Router();
  *     description: |
  *       Creates curriculum mapping for a department and regulation.
  *       Validates semester structure, subject ids, and uniqueness of semester numbers.
+ *       Semesters accept only `semesterNumber` and `subjects` (array of Subject ObjectIds).
  *       One curriculum is allowed per department-regulation pair.
  *
  *       **Access:** Authenticated users with role ADMIN only
@@ -130,6 +205,7 @@ router.post('/', protect, authorize('ADMIN'), createCurriculum);
  *     tags: [Curriculums]
  *     description: |
  *       Returns curriculum list with populated department, regulation, and subject references.
+ *       In each semester, subjects are returned as populated subject objects.
  *       Optional filters: `departmentId`, `regulationId`, `isActive`.
  *
  *       **Access:** Any authenticated user
@@ -151,6 +227,10 @@ router.post('/', protect, authorize('ADMIN'), createCurriculum);
  *     responses:
  *       200:
  *         description: Curriculum list fetched
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/CurriculumListResponse'
  *       400:
  *         description: Invalid query format or bad request
  *       401:
@@ -179,6 +259,10 @@ router.get('/', protect, getAllCurriculums);
  *     responses:
  *       200:
  *         description: Curriculum fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/CurriculumResponse'
  *       400:
  *         description: Invalid curriculum id or bad request
  *       401:
@@ -198,6 +282,7 @@ router.get('/:id', protect, getCurriculumById);
  *     tags: [Curriculums]
  *     description: |
  *       Updates curriculum fields and validates nested semester/subject payload when provided.
+ *       Semesters support only `subjects` array and do not store category.
  *
  *       **Access:** Authenticated users with role ADMIN only
  *     security:

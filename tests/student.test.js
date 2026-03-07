@@ -583,6 +583,32 @@ describe('Student API', () => {
       expect(res.body.data.students[0].section.name).toBe('B');
     });
 
+    test('should default to active academic records when academicYearId is passed', async () => {
+      const token = await createAdminToken();
+      const context = await createAcademicContext();
+
+      await createStudentWithRecord(context, {
+        registerNumber: 'REG-AY-ACTIVE-1',
+        semesterNumber: 1,
+        recordSemester: 1,
+        recordStatus: 'active'
+      });
+      await createStudentWithRecord(context, {
+        registerNumber: 'REG-AY-COMP-1',
+        semesterNumber: 1,
+        recordSemester: 1,
+        recordStatus: 'completed'
+      });
+
+      const res = await request(app)
+        .get(`/api/students?academicYearId=${context.academicYear._id}`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.students).toHaveLength(1);
+      expect(res.body.data.students[0].registerNumber).toBe('REG-AY-ACTIVE-1');
+    });
+
     test('should fail for invalid query object id', async () => {
       const token = await createAdminToken();
 
@@ -696,6 +722,137 @@ describe('Student API', () => {
       expect(nextYear).toBeTruthy();
       expect(nextYear.isActive).toBe(true);
     });
+
+    test('should mark previous semester records as completed during shift', async () => {
+      const token = await createAdminToken();
+      const context = await createAcademicContext({
+        startYear: 2024,
+        endYear: 2028,
+        academicStartYear: 2025,
+        academicEndYear: 2026
+      });
+
+      const { student } = await createStudentWithRecord(context, {
+        registerNumber: 'REG-SHIFT-COMP-1',
+        semesterNumber: 1,
+        recordSemester: 1,
+        recordStatus: 'active'
+      });
+
+      const res = await request(app)
+        .post('/api/students/semester-shift')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          departmentId: context.department._id.toString(),
+          batchId: context.batch._id.toString()
+        });
+
+      expect(res.status).toBe(200);
+
+      const previousRecord = await StudentAcademicRecord.findOne({
+        studentId: student._id,
+        academicYearId: context.academicYear._id,
+        semesterNumber: 1
+      });
+      expect(previousRecord).toBeTruthy();
+      expect(previousRecord.status).toBe('completed');
+    });
+  });
+
+  describe('GET /api/students/semester-shift-info', () => {
+    test('should fail when departmentId or batchId is missing', async () => {
+      const token = await createAdminToken();
+
+      const res = await request(app)
+        .get('/api/students/semester-shift-info')
+        .set('Authorization', `Bearer ${token}`)
+        .query({ departmentId: new mongoose.Types.ObjectId().toString() });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.message).toBe('departmentId and batchId are required');
+    });
+
+    test('should return empty shift info when no active students exist', async () => {
+      const token = await createAdminToken();
+      const context = await createAcademicContext();
+
+      const res = await request(app)
+        .get('/api/students/semester-shift-info')
+        .set('Authorization', `Bearer ${token}`)
+        .query({
+          departmentId: context.department._id.toString(),
+          batchId: context.batch._id.toString()
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.currentSemester).toBeNull();
+      expect(res.body.data.nextSemester).toBeNull();
+      expect(res.body.data.academicYearChange).toBe(false);
+      expect(res.body.data.studentCount).toBe(0);
+    });
+
+    test('should return shift info for a consistent semester set', async () => {
+      const token = await createAdminToken();
+      const context = await createAcademicContext();
+
+      await createStudentWithRecord(context, {
+        registerNumber: 'REG-INFO-1',
+        semesterNumber: 2,
+        createRecord: false
+      });
+      await createStudentWithRecord(context, {
+        registerNumber: 'REG-INFO-2',
+        semesterNumber: 2,
+        createRecord: false
+      });
+
+      const res = await request(app)
+        .get('/api/students/semester-shift-info')
+        .set('Authorization', `Bearer ${token}`)
+        .query({
+          departmentId: context.department._id.toString(),
+          batchId: context.batch._id.toString()
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.currentSemester).toBe(2);
+      expect(res.body.data.nextSemester).toBe(3);
+      expect(res.body.data.academicYearChange).toBe(true);
+      expect(res.body.data.studentCount).toBe(2);
+    });
+
+    test('should fail when active students have inconsistent semesters', async () => {
+      const token = await createAdminToken();
+      const context = await createAcademicContext();
+
+      await createStudentWithRecord(context, {
+        registerNumber: 'REG-INFO-MIX-1',
+        semesterNumber: 1,
+        createRecord: false
+      });
+      await createStudentWithRecord(context, {
+        registerNumber: 'REG-INFO-MIX-2',
+        semesterNumber: 2,
+        createRecord: false
+      });
+
+      const res = await request(app)
+        .get('/api/students/semester-shift-info')
+        .set('Authorization', `Bearer ${token}`)
+        .query({
+          departmentId: context.department._id.toString(),
+          batchId: context.batch._id.toString()
+        });
+
+      expect(res.status).toBe(500);
+      expect(res.body.success).toBe(false);
+      expect(res.body.message).toBe(
+        'Data inconsistency detected: students have different semesters'
+      );
+    });
   });
 
   describe('GET /api/students/stats/year-wise', () => {
@@ -764,6 +921,34 @@ describe('Student API', () => {
       expect(res.body.data.yearWise.firstYear).toBe(1);
       expect(res.body.data.yearWise.thirdYear).toBe(1);
     });
+
+    test('should support status filter for academic-year stats', async () => {
+      const token = await createAdminToken();
+      const context = await createAcademicContext();
+
+      await createStudentWithRecord(context, {
+        registerNumber: 'REG-STATS-STATUS-A',
+        semesterNumber: 2,
+        recordSemester: 2,
+        recordStatus: 'active'
+      });
+      await createStudentWithRecord(context, {
+        registerNumber: 'REG-STATS-STATUS-C',
+        semesterNumber: 2,
+        recordSemester: 2,
+        recordStatus: 'completed'
+      });
+
+      const res = await request(app)
+        .get(
+          `/api/students/stats/year-wise?academicYearId=${context.academicYear._id}&status=completed`
+        )
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.totalStudents).toBe(1);
+      expect(res.body.data.yearWise.firstYear).toBe(1);
+    });
   });
 
   describe('GET /api/students/stats/department-wise', () => {
@@ -818,6 +1003,38 @@ describe('Student API', () => {
       expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
       expect(res.body.message).toBe('Invalid departmentId format');
+    });
+
+    test('should support status filter for academic-year department-wise stats', async () => {
+      const token = await createAdminToken();
+      const context = await createAcademicContext({
+        departmentName: 'Dept-Status',
+        departmentCode: 'DPTS'
+      });
+
+      await createStudentWithRecord(context, {
+        registerNumber: 'REG-DPT-STATUS-A',
+        semesterNumber: 2,
+        recordSemester: 2,
+        recordStatus: 'active'
+      });
+      await createStudentWithRecord(context, {
+        registerNumber: 'REG-DPT-STATUS-C',
+        semesterNumber: 4,
+        recordSemester: 4,
+        recordStatus: 'completed'
+      });
+
+      const res = await request(app)
+        .get(
+          `/api/students/stats/department-wise?academicYearId=${context.academicYear._id}&status=completed`
+        )
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.totalDepartments).toBe(1);
+      expect(res.body.data.departments[0].totalStudents).toBe(1);
     });
   });
 });

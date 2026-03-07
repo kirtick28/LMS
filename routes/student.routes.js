@@ -546,7 +546,8 @@ router.delete('/:id', protect, authorize('ADMIN'), deleteStudent);
  *         name: status
  *         schema:
  *           type: string
- *           enum: [active, graduated, dropped]
+ *           enum: [active, completed, graduated, dropped]
+ *         description: For `academicYearId` mode, filters by academic record status (defaults to `active`).
  *     responses:
  *       200:
  *         description: Students fetched successfully
@@ -635,6 +636,12 @@ router.post(
  *         name: departmentId
  *         schema:
  *           type: string
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [active, completed]
+ *         description: Applied when `academicYearId` is provided. Defaults to `active`.
  *     responses:
  *       200:
  *         description: Student year-wise stats fetched successfully
@@ -673,6 +680,12 @@ router.get('/stats/year-wise', protect, getStudentStats);
  *         name: academicYearId
  *         schema:
  *           type: string
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [active, completed]
+ *         description: Applied when `academicYearId` is provided. Defaults to `active`.
  *     responses:
  *       200:
  *         description: Department-wise student stats fetched successfully
@@ -801,16 +814,21 @@ router.post('/semester-shift', protect, authorize('ADMIN'), semesterShift);
  *             schema:
  *               type: object
  *               properties:
- *                 currentSemester:
- *                   type: integer
- *                   nullable: true
- *                 nextSemester:
- *                   type: integer
- *                   nullable: true
- *                 academicYearChange:
+ *                 success:
  *                   type: boolean
- *                 studentCount:
- *                   type: integer
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     currentSemester:
+ *                       type: integer
+ *                       nullable: true
+ *                     nextSemester:
+ *                       type: integer
+ *                       nullable: true
+ *                     academicYearChange:
+ *                       type: boolean
+ *                     studentCount:
+ *                       type: integer
  *
  *       400:
  *         description: Missing departmentId or batchId

@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import path from 'path';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './utils/swagger.js';
+import { fileURLToPath } from 'url';
 
 // Environment variables Configuration
 dotenv.config();
@@ -26,11 +27,13 @@ import studentAcademicRecordRoutes from './routes/studentAcademicRecord.routes.j
 import globalErrorHandler from './middleware/error.middleware.js';
 import AppError from './utils/AppError.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 
 // Serve Static Folder
-app.use('/images', express.static(path.join(process.cwd(), 'images')));
-app.use('/pdf_assets', express.static(path.join(process.cwd(), 'pdf')));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Global Middlewares
 app.use(cors('*'));
@@ -54,6 +57,10 @@ app.use('/api/academic-years', academicYearRoutes);
 app.use('/api/batch-programs', batchProgramRoutes);
 app.use('/api/faculty-assignments', facultyAssignmentRoutes);
 app.use('/api/student-academic-records', studentAcademicRecordRoutes);
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 app.all('/{*any}', (req, res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server`, 404));

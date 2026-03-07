@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LMS API | System Status</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          'Inter',
+          system-ui,
+          -apple-system,
+          sans-serif;
+        /* Very mild, soft blue gradient background */
+        background: linear-gradient(135deg, #f0f7ff 0%, #e6f0fd 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #334155;
+      }
+
+      .container {
+        background: #ffffff;
+        padding: 48px 40px;
+        border-radius: 16px;
+        /* Soft, blue-tinted shadow */
+        box-shadow: 0 10px 40px -10px rgba(186, 208, 235, 0.6);
+        border: 1px solid #e2eaf4;
+        text-align: center;
+        max-width: 440px;
+        width: 90%;
+      }
+
+      .icon-wrapper {
+        width: 64px;
+        height: 64px;
+        /* Very light blue icon background */
+        background: #eef5ff;
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 24px;
+        font-size: 32px;
+      }
+
+      h1 {
+        color: #1e293b;
+        margin-bottom: 8px;
+        font-size: 1.75rem;
+        font-weight: 700;
+        letter-spacing: -0.025em;
+      }
+
+      p {
+        color: #64748b;
+        font-size: 1rem;
+        line-height: 1.5;
+        margin-bottom: 24px;
+      }
+
+      .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        /* Soft blue background for the status */
+        background: #f0f7ff;
+        color: #0369a1;
+        padding: 6px 16px;
+        border-radius: 9999px;
+        font-size: 0.875rem;
+        font-weight: 600;
+        border: 1px solid #bae6fd;
+        margin-bottom: 32px;
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        background: #38bdf8;
+        border-radius: 50%;
+        position: relative;
+      }
+
+      .status-dot::after {
+        content: '';
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        background: inherit;
+        border-radius: inherit;
+        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+
+      @keyframes pulse {
+        0% {
+          transform: scale(1);
+          opacity: 0.75;
+        }
+        100% {
+          transform: scale(3);
+          opacity: 0;
+        }
+      }
+
+      .links {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 12px 24px;
+        /* Mild but clear primary blue */
+        background: #3b82f6;
+        color: white;
+        text-decoration: none;
+        border-radius: 8px;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.2);
+      }
+
+      a:hover {
+        background: #2563eb;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 8px -1px rgba(59, 130, 246, 0.3);
+      }
+
+      .version-text {
+        margin-top: 32px;
+        font-size: 0.75rem;
+        color: #94a3b8;
+        font-weight: 500;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="icon-wrapper">🎓</div>
+      <h1>LMS API Server</h1>
+      <p>
+        The backend services and core infrastructure are currently active and
+        running.
+      </p>
+
+      <div class="status-badge">
+        <div class="status-dot"></div>
+        All Systems Operational
+      </div>
+
+      <div class="links">
+        <a href="/api-docs">
+          <svg
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+            ></path>
+          </svg>
+          View API Documentation
+        </a>
+      </div>
+
+      <div class="version-text">v1.0.0</div>
+    </div>
+  </body>
+</html>

@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
 import request from 'supertest';
 
 import app from '../app.js';
@@ -133,6 +134,120 @@ describe('Student API', () => {
 
   test('student schema should not define its own isActive field', () => {
     expect(Student.schema.path('isActive')).toBeUndefined();
+  });
+
+  describe('PUT /api/students/:id', () => {
+    let originalStartSession;
+
+    beforeEach(() => {
+      originalStartSession = mongoose.startSession.bind(mongoose);
+      mongoose.startSession = async (...args) => {
+        const session = await originalStartSession(...args);
+        session.startTransaction = () => {};
+        session.commitTransaction = async () => {};
+        session.abortTransaction = async () => {};
+        return session;
+      };
+    });
+
+    afterEach(() => {
+      mongoose.startSession = originalStartSession;
+    });
+
+    test('should reject non-admin role', async () => {
+      const token = await createFacultyToken();
+      const context = await createAcademicContext();
+      const { student } = await createStudentWithRecord(context, {
+        registerNumber: 'REG-UPD-ROLE-1'
+      });
+
+      const res = await request(app)
+        .put(`/api/students/${student._id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ firstName: 'Nope' });
+
+      expect(res.status).toBe(403);
+      expect(res.body.message).toBe('Access denied');
+    });
+
+    test('should fail when email is already used by another user', async () => {
+      const token = await createAdminToken();
+      const context = await createAcademicContext();
+      const { student } = await createStudentWithRecord(context, {
+        registerNumber: 'REG-UPD-DUP-1'
+      });
+      const takenUser = await createUser({ role: 'STUDENT' });
+
+      const res = await request(app)
+        .put(`/api/students/${student._id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ email: takenUser.email });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.message).toBe('Email already in use');
+    });
+
+    test('should fail for invalid gender value', async () => {
+      const token = await createAdminToken();
+      const context = await createAcademicContext();
+      const { student } = await createStudentWithRecord(context, {
+        registerNumber: 'REG-UPD-GDR-1'
+      });
+
+      const res = await request(app)
+        .put(`/api/students/${student._id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ gender: 'Unknown' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.message).toBe('Invalid gender value');
+    });
+
+    test('should update linked user fields and student fields together', async () => {
+      const token = await createAdminToken();
+      const context = await createAcademicContext();
+      const { student, user } = await createStudentWithRecord(context, {
+        registerNumber: 'REG-UPD-OK-1',
+        firstName: 'Before',
+        lastName: 'User',
+        gender: 'Male'
+      });
+
+      const payload = {
+        firstName: 'After',
+        email: `updated-${uniq()}@example.com`,
+        password: 'newpass123',
+        gender: 'Female',
+        dateOfBirth: '2004-08-15'
+      };
+
+      const res = await request(app)
+        .put(`/api/students/${student._id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send(payload);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.message).toBe('Student updated successfully');
+      expect(res.body.data.student.firstName).toBe('After');
+
+      const [updatedStudent, updatedUser] = await Promise.all([
+        Student.findById(student._id),
+        User.findById(user._id).select('+password')
+      ]);
+
+      expect(updatedStudent.firstName).toBe('After');
+      expect(updatedUser.email).toBe(payload.email.toLowerCase());
+      expect(updatedUser.gender).toBe('Female');
+      expect(new Date(updatedUser.dateOfBirth).toISOString()).toBe(
+        '2004-08-15T00:00:00.000Z'
+      );
+      await expect(updatedUser.comparePassword('newpass123')).resolves.toBe(
+        true
+      );
+    });
   });
 
   describe('DELETE /api/students/:id', () => {

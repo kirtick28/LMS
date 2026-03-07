@@ -157,6 +157,56 @@ export const updateStudent = async (req, res, next) => {
     const student = await Student.findById(id).session(session);
     if (!student) throw new AppError('Student not found', 404);
 
+    const user = await User.findById(student.userId)
+      .select('+password')
+      .session(session);
+    if (!user) throw new AppError('Linked user not found for student', 404);
+
+    // Update linked user fields when provided
+    if (updateData.email !== undefined) {
+      const normalizedEmail = String(updateData.email).toLowerCase().trim();
+      if (!normalizedEmail) throw new AppError('Email cannot be empty', 400);
+
+      if (normalizedEmail !== user.email) {
+        const duplicateUser = await User.findOne({
+          email: normalizedEmail,
+          _id: { $ne: user._id }
+        }).session(session);
+
+        if (duplicateUser) throw new AppError('Email already in use', 400);
+      }
+
+      user.email = normalizedEmail;
+    }
+
+    if (updateData.password !== undefined) {
+      const password = String(updateData.password);
+      if (password.trim().length < 6) {
+        throw new AppError('Password must be at least 6 characters', 400);
+      }
+      user.password = password;
+    }
+
+    if (updateData.gender !== undefined) {
+      const allowedGenders = ['Male', 'Female', 'Other'];
+      if (!allowedGenders.includes(updateData.gender)) {
+        throw new AppError('Invalid gender value', 400);
+      }
+      user.gender = updateData.gender;
+    }
+
+    if (updateData.dateOfBirth !== undefined) {
+      if (updateData.dateOfBirth === null || updateData.dateOfBirth === '') {
+        user.dateOfBirth = undefined;
+      } else {
+        const parsedDate = new Date(updateData.dateOfBirth);
+        if (Number.isNaN(parsedDate.getTime())) {
+          throw new AppError('Invalid dateOfBirth', 400);
+        }
+        user.dateOfBirth = parsedDate;
+      }
+    }
+
     // Handle Register Number Change
     if (updateData.registerNumber) {
       const normalizedReg = String(updateData.registerNumber)
@@ -218,7 +268,7 @@ export const updateStudent = async (req, res, next) => {
       if (updateData[field] !== undefined) student[field] = updateData[field];
     });
 
-    await student.save({ session });
+    await Promise.all([student.save({ session }), user.save({ session })]);
 
     const activeAcademicYear = await StudentHelper.getActiveAcademicYear();
 
@@ -452,7 +502,8 @@ export const getAllStudents = async (req, res, next) => {
             user: {
               _id: '$user._id',
               email: '$user.email',
-              gender: '$user.gender'
+              gender: '$user.gender',
+              dateOfBirth: '$user.dateOfBirth'
             }
           }
         }

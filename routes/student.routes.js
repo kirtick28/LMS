@@ -81,6 +81,18 @@ const upload = multer({ storage: multer.memoryStorage() });
  *     StudentUpdateRequest:
  *       type: object
  *       properties:
+ *         email:
+ *           type: string
+ *           format: email
+ *         password:
+ *           type: string
+ *           minimum: 6
+ *         gender:
+ *           type: string
+ *           enum: [Male, Female, Other]
+ *         dateOfBirth:
+ *           type: string
+ *           format: date
  *         firstName:
  *           type: string
  *         lastName:

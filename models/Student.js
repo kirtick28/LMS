@@ -26,10 +26,6 @@ const studentSchema = new mongoose.Schema(
       required: true,
       index: true
     },
-    admissionYear: {
-      type: Number,
-      required: true
-    },
     firstName: {
       type: String,
       required: true,

@@ -15,8 +15,7 @@ export const createAcademicYear = async (req, res, next) => {
       });
     }
 
-    const endYearShort = String(endYear).slice(-2);
-    const name = `${startYear}-${endYearShort}`;
+    const name = `${startYear}-${endYear}`;
 
     const existing = await AcademicYear.findOne({ name });
     if (existing) {

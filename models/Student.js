@@ -55,7 +55,7 @@ const studentSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['active', 'graduated', 'dropped'],
+      enum: ['active', 'graduated', 'dropped', 'inactive'],
       default: 'active',
       index: true
     },
@@ -69,6 +69,7 @@ const studentSchema = new mongoose.Schema(
 studentSchema.index({ batchId: 1, status: 1 });
 studentSchema.index({ departmentId: 1, status: 1 });
 studentSchema.index({ sectionId: 1, status: 1 });
+studentSchema.index({ departmentId: 1, batchId: 1, status: 1 });
 
 studentSchema.virtual('fullName').get(function () {
   return `${this.firstName} ${this.lastName}`;

@@ -8,7 +8,8 @@ import {
   uploadMultipleStudents,
   getStudentDepartmentWise,
   getStudentStats,
-  semesterShift
+  semesterShift,
+  getSemesterShiftInfo
 } from '../controllers/student.controller.js';
 import { protect, authorize } from '../middleware/auth.middleware.js';
 
@@ -116,6 +117,8 @@ const upload = multer({ storage: multer.memoryStorage() });
  *         status:
  *           type: string
  *           enum: [active, graduated, dropped]
+ *         isActive:
+ *           type: boolean
  *     StudentSemesterUpdateRequest:
  *       type: object
  *       required:
@@ -217,6 +220,21 @@ const upload = multer({ storage: multer.memoryStorage() });
  *               type: string
  *             gender:
  *               type: string
+ *         isActive:
+ *           type: boolean
+ *     StudentCreateResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: true
+ *         message:
+ *           type: string
+ *         data:
+ *           type: object
+ *           properties:
+ *             studentId:
+ *               type: string
  *     StudentResponse:
  *       type: object
  *       properties:
@@ -258,10 +276,6 @@ const upload = multer({ storage: multer.memoryStorage() });
  *           type: object
  *           properties:
  *             inserted:
- *               type: integer
- *             skipped:
- *               type: integer
- *             failed:
  *               type: integer
  *     StudentYearWiseStatsResponse:
  *       type: object
@@ -330,7 +344,11 @@ const upload = multer({ storage: multer.memoryStorage() });
  *         data:
  *           type: object
  *           properties:
- *             totalStudentsProcessed:
+ *             departmentId:
+ *               type: string
+ *             batchId:
+ *               type: string
+ *             totalStudents:
  *               type: integer
  *             studentsPromoted:
  *               type: integer
@@ -338,7 +356,7 @@ const upload = multer({ storage: multer.memoryStorage() });
  *               type: integer
  *             academicYearChanged:
  *               type: boolean
- *             newAcademicYearName:
+ *             academicYear:
  *               type: string
  *     MessageResponse:
  *       type: object
@@ -378,7 +396,7 @@ const upload = multer({ storage: multer.memoryStorage() });
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/StudentResponse'
+ *               $ref: '#/components/schemas/StudentCreateResponse'
  *       400:
  *         description: Missing required fields or duplicate email/registerNumber
  *       401:
@@ -403,7 +421,8 @@ router.post('/', protect, authorize('ADMIN'), addStudent);
  *       **Key Behaviors:**
  *
  *       - **Profile Updates:**
- *         Modifies basic information, status, and register number (ensures uniqueness).
+ *         Modifies basic information, linked user fields (including `isActive`),
+ *         status, and register number (ensures uniqueness).
  *
  *       - **Section Changes:**
  *         Updating `sectionId` automatically cascades and updates the student's current
@@ -552,8 +571,8 @@ router.get('/', protect, getAllStudents);
  *     tags: [Students]
  *     description: |
  *       Uploads students from an Excel file. Each row should contain
- *       `email`, `firstName`, `lastName`, `registerNumber`, `departmentId`, and `batchId`.
- *       Optional `sectionId` defaults to the `UNALLOCATED` section in the corresponding batch program.
+ *       `email`, `firstName`, `lastName`, `registerNumber`, `departmentCode`, and `batchName`.
+ *       Section assignment is auto-allocated based on section capacity.
  *
  *       **Access:** Authenticated users with role ADMIN only
  *     security:
@@ -674,32 +693,142 @@ router.get('/stats/department-wise', protect, getStudentDepartmentWise);
  * @swagger
  * /api/students/semester-shift:
  *   post:
- *     summary: Perform global semester shift for active students
+ *     summary: Shift semester for a specific department and batch
  *     tags: [Students]
- *     description: |
- *       Promotes all active students to next semester in bulk.
- *       Students crossing the final semester are marked as graduated.
- *       During even-to-odd transition, academic year may be switched/created.
+ *     description: >
+ *       Promotes all active students belonging to a specific department and batch
+ *       to the next semester.
  *
- *       **Access:** Authenticated users with role ADMIN only
+ *       Key Behaviors:
+ *       - Semester Promotion: All active students (status = "active") are promoted to the next semester.
+ *       - Graduation Handling: Students moving beyond semester 8 are automatically marked as "graduated".
+ *       - Academic Year Transition:
+ *           * Odd → Even (1→2, 3→4, 5→6, 7→8): Academic year remains the same.
+ *           * Even → Odd (2→3, 4→5, 6→7): A new academic year is activated or created automatically.
+ *       - Safety Check: Prevents accidental double execution if records for the upcoming semester already exist.
+ *
+ *       Note: This operation only affects students matching the provided departmentId and batchId.
+ *
+ *       Access: Authenticated users with role ADMIN only.
+ *
  *     security:
  *       - bearerAuth: []
+ *
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - departmentId
+ *               - batchId
+ *             properties:
+ *               departmentId:
+ *                 type: string
+ *                 description: MongoDB ObjectId of the department
+ *               batchId:
+ *                 type: string
+ *                 description: MongoDB ObjectId of the batch
+ *
  *     responses:
  *       200:
- *         description: Global semester shift completed successfully
+ *         description: Semester shift completed successfully
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/SemesterShiftResponse'
+ *
  *       400:
- *         description: No active students found or shift safety triggered
+ *         description: Bad request (missing parameters, no students found, or shift already executed)
+ *
  *       401:
  *         description: Unauthorized (JWT missing or invalid)
+ *
  *       403:
- *         description: Access denied (requires ADMIN)
+ *         description: Access denied (requires ADMIN role)
+ *
  *       500:
  *         description: Server error
  */
 router.post('/semester-shift', protect, authorize('ADMIN'), semesterShift);
+
+/**
+ * @swagger
+ * /api/students/semester-shift-info:
+ *   get:
+ *     summary: Get semester shift information for a department and batch
+ *     tags: [Students]
+ *     description: >
+ *       Returns the current semester of students for a given department and batch.
+ *       This endpoint helps administrators verify the current semester before
+ *       performing a semester shift.
+ *
+ *       Key Behaviors:
+ *       - Finds active students for the provided department and batch.
+ *       - Determines the current semester from student records.
+ *       - Calculates the next semester.
+ *       - Indicates whether the academic year will change (Even → Odd transition).
+ *
+ *       If no students exist for the department and batch, the semester is considered
+ *       not initialized.
+ *
+ *       Access: Authenticated users with role ADMIN only.
+ *
+ *     security:
+ *       - bearerAuth: []
+ *
+ *     parameters:
+ *       - in: query
+ *         name: departmentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: MongoDB ObjectId of the department
+ *
+ *       - in: query
+ *         name: batchId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: MongoDB ObjectId of the batch
+ *
+ *     responses:
+ *       200:
+ *         description: Semester shift information retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 currentSemester:
+ *                   type: integer
+ *                   nullable: true
+ *                 nextSemester:
+ *                   type: integer
+ *                   nullable: true
+ *                 academicYearChange:
+ *                   type: boolean
+ *                 studentCount:
+ *                   type: integer
+ *
+ *       400:
+ *         description: Missing departmentId or batchId
+ *
+ *       401:
+ *         description: Unauthorized
+ *
+ *       403:
+ *         description: Access denied (requires ADMIN)
+ *
+ *       500:
+ *         description: Server error
+ */
+router.get(
+  '/semester-shift-info',
+  protect,
+  authorize('ADMIN'),
+  getSemesterShiftInfo
+);
 
 export default router;

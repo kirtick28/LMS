@@ -3,6 +3,7 @@ import xlsx from 'xlsx';
 import Student from '../models/Student.js';
 import User from '../models/User.js';
 import StudentAcademicRecord from '../models/StudentAcademicRecord.js';
+import AcademicYear from '../models/AcademicYear.js';
 import Department from '../models/Department.js';
 import Batch from '../models/Batch.js';
 import BatchProgram from '../models/BatchProgram.js';
@@ -11,8 +12,7 @@ import AppError from '../utils/AppError.js';
 import StudentHelper from '../utils/StudentHelper.js';
 
 export const addStudent = async (req, res, next) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  let session;
 
   try {
     const {
@@ -40,34 +40,56 @@ export const addStudent = async (req, res, next) => {
     const normalizedEmail = String(email).toLowerCase().trim();
     const normalizedRegister = String(registerNumber).toUpperCase().trim();
 
-    // Check unique constraints
-    const existingUser = await User.findOne({ email: normalizedEmail }).session(
-      session
-    );
-    if (existingUser)
-      throw new AppError('User already exists with this email', 400);
+    // ======================================
+    // PARALLEL DUPLICATE CHECKS (FASTER)
+    // ======================================
+    const [existingUser, existingStudent] = await Promise.all([
+      User.findOne({ email: normalizedEmail }).select('_id'),
+      Student.findOne({ registerNumber: normalizedRegister }).select('_id')
+    ]);
 
-    const existingStudent = await Student.findOne({
-      registerNumber: normalizedRegister
-    }).session(session);
-    if (existingStudent)
+    if (existingUser) {
+      throw new AppError('User already exists with this email', 400);
+    }
+
+    if (existingStudent) {
       throw new AppError(
         'Student with this registerNumber already exists',
         400
       );
+    }
 
-    // Resolve Relationships & Context using Helper
-    // Extract both section and batch (needed for semester validation)
+    // ======================================
+    // RESOLVE CONTEXT
+    // ======================================
     const { section, batch } = await StudentHelper.resolveContext(
       departmentId,
       batchId,
       sectionId
     );
+
+    // ======================================
+    // SECTION CAPACITY VALIDATION
+    // ======================================
+    const currentStudentCount = await Student.countDocuments({
+      sectionId: section._id,
+      status: 'active'
+    });
+
+    if (currentStudentCount >= section.capacity) {
+      throw new AppError(
+        `Section ${section.name} has reached its capacity`,
+        400
+      );
+    }
+
     const activeAcademicYear = await StudentHelper.getActiveAcademicYear();
 
     const finalSemesterNumber = Number(semesterNumber) || 1;
 
-    // RULE 1: SEMESTER VALIDATION ALGORITHM
+    // ======================================
+    // SEMESTER VALIDATION
+    // ======================================
     const yearDifference = activeAcademicYear.startYear - batch.startYear;
     const maxAllowedSemester = yearDifference * 2 + 2;
 
@@ -78,10 +100,20 @@ export const addStudent = async (req, res, next) => {
       );
     }
 
-    // 1. Create User
-    const [user] = await User.create(
+    // ======================================
+    // START TRANSACTION (WRITES ONLY)
+    // ======================================
+    session = await mongoose.startSession();
+    session.startTransaction();
+
+    const userId = new mongoose.Types.ObjectId();
+    const studentId = new mongoose.Types.ObjectId();
+
+    // 1️⃣ Create User
+    await User.create(
       [
         {
+          _id: userId,
           email: normalizedEmail,
           password,
           role: 'STUDENT',
@@ -92,11 +124,12 @@ export const addStudent = async (req, res, next) => {
       { session }
     );
 
-    // 2. Create Student
-    const [student] = await Student.create(
+    // 2️⃣ Create Student
+    await Student.create(
       [
         {
-          userId: user._id,
+          _id: studentId,
+          userId,
           departmentId,
           batchId,
           sectionId: section._id,
@@ -111,39 +144,34 @@ export const addStudent = async (req, res, next) => {
       { session }
     );
 
-    // RULE 2 & 5: Create Academic Record (Ensuring unique combo)
-    const existingRecord = await StudentAcademicRecord.findOne({
-      studentId: student._id,
-      academicYearId: activeAcademicYear._id,
-      semesterNumber: finalSemesterNumber
-    }).session(session);
-
-    if (!existingRecord) {
-      await StudentAcademicRecord.create(
-        [
-          {
-            studentId: student._id,
-            academicYearId: activeAcademicYear._id,
-            semesterNumber: finalSemesterNumber,
-            sectionId: section._id,
-            status: 'active'
-          }
-        ],
-        { session }
-      );
-    }
+    // 3️⃣ Create Academic Record
+    await StudentAcademicRecord.create(
+      [
+        {
+          studentId,
+          academicYearId: activeAcademicYear._id,
+          semesterNumber: finalSemesterNumber,
+          sectionId: section._id,
+          status: 'active'
+        }
+      ],
+      { session }
+    );
 
     await session.commitTransaction();
+
     return res.status(201).json({
       success: true,
       message: 'Student created successfully',
-      data: { student }
+      data: {
+        studentId
+      }
     });
   } catch (error) {
-    await session.abortTransaction();
+    if (session) await session.abortTransaction();
     return next(StudentHelper.mapToAppError(error));
   } finally {
-    session.endSession();
+    if (session) session.endSession();
   }
 };
 
@@ -209,6 +237,13 @@ export const updateStudent = async (req, res, next) => {
         }
         user.dateOfBirth = parsedDate;
       }
+    }
+
+    if (updateData.isActive !== undefined) {
+      if (typeof updateData.isActive !== 'boolean') {
+        throw new AppError('isActive must be a boolean value', 400);
+      }
+      user.isActive = updateData.isActive;
     }
 
     // Handle Register Number Change
@@ -369,175 +404,6 @@ export const deleteStudent = async (req, res, next) => {
       success: true,
       message: 'Student deleted successfully',
       data: {}
-    });
-  } catch (error) {
-    return next(StudentHelper.mapToAppError(error));
-  }
-};
-
-export const getAllStudents = async (req, res, next) => {
-  try {
-    const {
-      academicYearId,
-      semesterNumber,
-      departmentId,
-      batchId,
-      sectionId,
-      status
-    } = req.query;
-
-    let students;
-
-    if (academicYearId) {
-      // --- STRATEGY: Start from StudentAcademicRecord ---
-      const matchStage = {
-        academicYearId: StudentHelper.toObjectId(
-          academicYearId,
-          'academicYearId'
-        )
-      };
-      if (semesterNumber) matchStage.semesterNumber = Number(semesterNumber);
-
-      const studentMatchStage = {};
-      if (departmentId)
-        studentMatchStage['student.departmentId'] = StudentHelper.toObjectId(
-          departmentId,
-          'departmentId'
-        );
-      if (batchId)
-        studentMatchStage['student.batchId'] = StudentHelper.toObjectId(
-          batchId,
-          'batchId'
-        );
-      if (sectionId)
-        studentMatchStage['student.sectionId'] = StudentHelper.toObjectId(
-          sectionId,
-          'sectionId'
-        );
-      if (status)
-        studentMatchStage['student.status'] = String(status).toLowerCase();
-
-      students = await StudentAcademicRecord.aggregate([
-        { $match: matchStage }, // Rule 1: Match early
-        {
-          $lookup: {
-            from: 'students',
-            localField: 'studentId',
-            foreignField: '_id',
-            as: 'student'
-          }
-        },
-        { $unwind: '$student' },
-        { $match: studentMatchStage }, // Filter by student properties
-        {
-          $lookup: {
-            from: 'users',
-            localField: 'student.userId',
-            foreignField: '_id',
-            as: 'user'
-          }
-        },
-        { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
-        {
-          $lookup: {
-            from: 'departments',
-            localField: 'student.departmentId',
-            foreignField: '_id',
-            as: 'department'
-          }
-        },
-        { $unwind: { path: '$department', preserveNullAndEmptyArrays: true } },
-        {
-          $lookup: {
-            from: 'batches',
-            localField: 'student.batchId',
-            foreignField: '_id',
-            as: 'batch'
-          }
-        },
-        { $unwind: { path: '$batch', preserveNullAndEmptyArrays: true } },
-        {
-          $lookup: {
-            from: 'sections',
-            localField: 'student.sectionId',
-            foreignField: '_id',
-            as: 'section'
-          }
-        },
-        { $unwind: { path: '$section', preserveNullAndEmptyArrays: true } },
-        {
-          $lookup: {
-            from: 'academicyears',
-            localField: 'academicYearId',
-            foreignField: '_id',
-            as: 'academicYear'
-          }
-        },
-        {
-          $unwind: { path: '$academicYear', preserveNullAndEmptyArrays: true }
-        },
-        {
-          $project: {
-            // Rule 3: Avoid loading large documents completely
-            _id: '$student._id',
-            firstName: '$student.firstName',
-            lastName: '$student.lastName',
-            registerNumber: '$student.registerNumber',
-            status: '$student.status',
-            rollNumber: '$student.rollNumber',
-            semesterNumber: '$semesterNumber', // Rule 4: Reuse from AcademicRecord
-            yearLevel: { $ceil: { $divide: ['$semesterNumber', 2] } },
-            academicYear: {
-              _id: '$academicYear._id',
-              name: '$academicYear.name'
-            },
-            department: {
-              _id: '$department._id',
-              name: '$department.name',
-              code: '$department.code'
-            },
-            batch: {
-              _id: '$batch._id',
-              name: '$batch.name',
-              startYear: '$batch.startYear',
-              endYear: '$batch.endYear'
-            },
-            section: { _id: '$section._id', name: '$section.name' },
-            user: {
-              _id: '$user._id',
-              email: '$user.email',
-              gender: '$user.gender',
-              dateOfBirth: '$user.dateOfBirth'
-            }
-          }
-        }
-      ]);
-    } else {
-      // --- STRATEGY: Start directly from Student Collection ---
-      const filter = {};
-      if (departmentId)
-        filter.departmentId = StudentHelper.toObjectId(
-          departmentId,
-          'departmentId'
-        );
-      if (batchId)
-        filter.batchId = StudentHelper.toObjectId(batchId, 'batchId');
-      if (sectionId)
-        filter.sectionId = StudentHelper.toObjectId(sectionId, 'sectionId');
-      if (status) filter.status = String(status).toLowerCase();
-      if (semesterNumber) filter.semesterNumber = Number(semesterNumber);
-
-      students = await Student.find(filter)
-        .populate('userId', 'email gender dateOfBirth isActive')
-        .populate('departmentId', 'name code program')
-        .populate('batchId', 'name startYear endYear')
-        .populate('sectionId', 'name capacity isActive');
-    }
-
-    return res.json({
-      success: true,
-      message: 'Students fetched successfully',
-      data: { students }
     });
   } catch (error) {
     return next(StudentHelper.mapToAppError(error));
@@ -794,26 +660,197 @@ export const uploadMultipleStudents = async (req, res, next) => {
   }
 };
 
+export const getAllStudents = async (req, res, next) => {
+  try {
+    const {
+      academicYearId,
+      semesterNumber,
+      departmentId,
+      batchId,
+      sectionId,
+      status
+    } = req.query;
+
+    const recordStatus = status ? String(status).toLowerCase() : 'active';
+
+    let students;
+
+    if (academicYearId) {
+      const matchStage = {
+        academicYearId: StudentHelper.toObjectId(
+          academicYearId,
+          'academicYearId'
+        ),
+        status: recordStatus
+      };
+
+      if (semesterNumber) matchStage.semesterNumber = Number(semesterNumber);
+
+      const studentMatchStage = {};
+      if (departmentId)
+        studentMatchStage['student.departmentId'] = StudentHelper.toObjectId(
+          departmentId,
+          'departmentId'
+        );
+      if (batchId)
+        studentMatchStage['student.batchId'] = StudentHelper.toObjectId(
+          batchId,
+          'batchId'
+        );
+      if (sectionId)
+        studentMatchStage['student.sectionId'] = StudentHelper.toObjectId(
+          sectionId,
+          'sectionId'
+        );
+      if (status)
+        studentMatchStage['student.status'] = String(status).toLowerCase();
+
+      students = await StudentAcademicRecord.aggregate([
+        { $match: matchStage },
+        {
+          $lookup: {
+            from: 'students',
+            localField: 'studentId',
+            foreignField: '_id',
+            as: 'student'
+          }
+        },
+        { $unwind: '$student' },
+        { $match: studentMatchStage },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'student.userId',
+            foreignField: '_id',
+            as: 'user'
+          }
+        },
+        { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: 'departments',
+            localField: 'student.departmentId',
+            foreignField: '_id',
+            as: 'department'
+          }
+        },
+        { $unwind: { path: '$department', preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: 'batches',
+            localField: 'student.batchId',
+            foreignField: '_id',
+            as: 'batch'
+          }
+        },
+        { $unwind: { path: '$batch', preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: 'sections',
+            localField: 'student.sectionId',
+            foreignField: '_id',
+            as: 'section'
+          }
+        },
+        { $unwind: { path: '$section', preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: 'academicyears',
+            localField: 'academicYearId',
+            foreignField: '_id',
+            as: 'academicYear'
+          }
+        },
+        {
+          $unwind: { path: '$academicYear', preserveNullAndEmptyArrays: true }
+        },
+        {
+          $project: {
+            _id: '$student._id',
+            firstName: '$student.firstName',
+            lastName: '$student.lastName',
+            registerNumber: '$student.registerNumber',
+            status: '$student.status',
+            rollNumber: '$student.rollNumber',
+            semesterNumber: '$semesterNumber',
+            yearLevel: { $ceil: { $divide: ['$semesterNumber', 2] } },
+            academicYear: {
+              _id: '$academicYear._id',
+              name: '$academicYear.name'
+            },
+            department: {
+              _id: '$department._id',
+              name: '$department.name',
+              code: '$department.code'
+            },
+            batch: {
+              _id: '$batch._id',
+              name: '$batch.name',
+              startYear: '$batch.startYear',
+              endYear: '$batch.endYear'
+            },
+            section: { _id: '$section._id', name: '$section.name' },
+            user: {
+              _id: '$user._id',
+              email: '$user.email',
+              gender: '$user.gender',
+              dateOfBirth: '$user.dateOfBirth'
+            },
+            isActive: '$user.isActive'
+          }
+        }
+      ]);
+    } else {
+      const filter = {};
+      if (departmentId)
+        filter.departmentId = StudentHelper.toObjectId(
+          departmentId,
+          'departmentId'
+        );
+      if (batchId)
+        filter.batchId = StudentHelper.toObjectId(batchId, 'batchId');
+      if (sectionId)
+        filter.sectionId = StudentHelper.toObjectId(sectionId, 'sectionId');
+      if (status) filter.status = String(status).toLowerCase();
+      if (semesterNumber) filter.semesterNumber = Number(semesterNumber);
+
+      students = await Student.find(filter)
+        .populate('userId', 'email gender dateOfBirth isActive')
+        .populate('departmentId', 'name code program')
+        .populate('batchId', 'name startYear endYear')
+        .populate('sectionId', 'name capacity isActive');
+    }
+
+    return res.json({
+      success: true,
+      message: 'Students fetched successfully',
+      data: { students }
+    });
+  } catch (error) {
+    return next(StudentHelper.mapToAppError(error));
+  }
+};
+
 export const getStudentStats = async (req, res, next) => {
   try {
-    const { academicYearId, departmentId } = req.query;
-    console.log(academicYearId);
+    const { academicYearId, departmentId, status } = req.query;
+    const recordStatus = status ? String(status).toLowerCase() : 'active';
+
     let statsData;
 
     if (academicYearId) {
-      // --- STRATEGY: Start from StudentAcademicRecord ---
       const pipeline = [
         {
           $match: {
             academicYearId: StudentHelper.toObjectId(
               academicYearId,
               'academicYearId'
-            )
+            ),
+            status: recordStatus
           }
         }
       ];
 
-      // If department filter exists, we MUST lookup student first to filter
       if (departmentId) {
         pipeline.push(
           {
@@ -879,7 +916,6 @@ export const getStudentStats = async (req, res, next) => {
 
       [statsData] = await StudentAcademicRecord.aggregate(pipeline);
     } else {
-      // --- STRATEGY: Start directly from Student Collection ---
       const matchStage = departmentId
         ? {
             departmentId: StudentHelper.toObjectId(departmentId, 'departmentId')
@@ -938,6 +974,7 @@ export const getStudentStats = async (req, res, next) => {
       thirdYear: 0,
       fourthYear: 0
     };
+
     const { _id, totalStudents, ...yearWise } = data;
 
     return res.json({
@@ -952,18 +989,20 @@ export const getStudentStats = async (req, res, next) => {
 
 export const getStudentDepartmentWise = async (req, res, next) => {
   try {
-    const { academicYearId, departmentId } = req.query;
+    const { academicYearId, departmentId, status } = req.query;
+    const recordStatus = status ? String(status).toLowerCase() : 'active';
+
     let stats;
 
     if (academicYearId) {
-      // --- STRATEGY: Start from StudentAcademicRecord ---
       const pipeline = [
         {
           $match: {
             academicYearId: StudentHelper.toObjectId(
               academicYearId,
               'academicYearId'
-            )
+            ),
+            status: recordStatus
           }
         },
         {
@@ -977,7 +1016,6 @@ export const getStudentDepartmentWise = async (req, res, next) => {
         { $unwind: '$student' }
       ];
 
-      // If department filter exists, match it after joining the student data
       if (departmentId) {
         pipeline.push({
           $match: {
@@ -992,7 +1030,7 @@ export const getStudentDepartmentWise = async (req, res, next) => {
       pipeline.push(
         {
           $group: {
-            _id: '$student.departmentId', // Group by the matched student's department
+            _id: '$student.departmentId',
             totalStudents: { $sum: 1 },
             firstYear: {
               $sum: { $cond: [{ $lte: ['$semesterNumber', 2] }, 1, 0] }
@@ -1057,10 +1095,8 @@ export const getStudentDepartmentWise = async (req, res, next) => {
 
       stats = await StudentAcademicRecord.aggregate(pipeline);
     } else {
-      // --- STRATEGY: Start directly from Student Collection ---
       const pipeline = [];
 
-      // If department filter exists, match it immediately
       if (departmentId) {
         pipeline.push({
           $match: {
@@ -1149,150 +1185,225 @@ export const getStudentDepartmentWise = async (req, res, next) => {
 };
 
 export const semesterShift = async (req, res, next) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  let session;
 
   try {
-    // 1. Fetch active academic year
+    const { departmentId, batchId } = req.body;
+
+    if (!departmentId || !batchId) {
+      throw new AppError('departmentId and batchId are required', 400);
+    }
+
     const currentAcademicYear = await StudentHelper.getActiveAcademicYear();
 
-    // 2. Fetch all active students
-    const activeStudents = await Student.find({
-      status: 'active'
-    }).session(session);
-
-    if (activeStudents.length === 0) {
-      throw new AppError('No active students found to promote', 400);
-    }
-
-    // 3. Determine if Academic Year shift is needed (EVEN -> ODD Transition)
-    // If we detect students currently in Even semesters, it implies an Even -> Odd transition.
-    const isEvenSemesterPhase = activeStudents.some(
-      (s) => s.semesterNumber % 2 === 0
+    const students = await Student.find(
+      {
+        departmentId,
+        batchId,
+        status: 'active'
+      },
+      '_id semesterNumber sectionId'
     );
 
-    let targetAcademicYear = currentAcademicYear;
-    let academicYearChanged = false;
-
-    if (isEvenSemesterPhase) {
-      // Transitioning to a new Academic Year
-      targetAcademicYear = await AcademicYear.findOne({
-        startYear: currentAcademicYear.startYear + 1
-      }).session(session);
-
-      if (!targetAcademicYear) {
-        // Auto-create next academic year if missing
-        const newStart = currentAcademicYear.startYear + 1;
-        const newEnd = currentAcademicYear.endYear + 1;
-        const newName = `${newStart}-${String(newEnd).slice(-2)}`;
-
-        const [createdYear] = await AcademicYear.create(
-          [
-            {
-              name: newName,
-              startYear: newStart,
-              endYear: newEnd,
-              isActive: true
-            }
-          ],
-          { session }
-        );
-
-        targetAcademicYear = createdYear;
-      } else {
-        targetAcademicYear.isActive = true;
-        await targetAcademicYear.save({ session });
-      }
-
-      // Deactivate old academic year
-      currentAcademicYear.isActive = false;
-      await currentAcademicYear.save({ session });
-      academicYearChanged = true;
-    }
-
-    // 4. Safety Validation - Prevent running twice accidentally
-    const nextSemesters = activeStudents.map((s) => s.semesterNumber + 1);
-    const existingRecordsCount = await StudentAcademicRecord.countDocuments({
-      academicYearId: targetAcademicYear._id,
-      semesterNumber: { $in: nextSemesters }
-    }).session(session);
-
-    if (existingRecordsCount > activeStudents.length * 0.5) {
+    if (!students.length) {
       throw new AppError(
-        'Shift safety triggered: Records for the upcoming semester already exist.',
+        'No active students found for this department and batch',
         400
       );
     }
 
-    // 5. Prepare Bulk Operations
+    const currentSemester = students[0].semesterNumber;
+    const nextSemester = currentSemester + 1;
+
+    const evenToOddTransition = currentSemester % 2 === 0;
+
+    let targetAcademicYear = currentAcademicYear;
+    let academicYearChanged = false;
+
+    if (evenToOddTransition) {
+      const nextStartYear = currentAcademicYear.startYear + 1;
+
+      targetAcademicYear = await AcademicYear.findOne({
+        startYear: nextStartYear
+      });
+
+      if (!targetAcademicYear) {
+        const newEnd = currentAcademicYear.endYear + 1;
+        const name = `${nextStartYear}-${String(newEnd).slice(-2)}`;
+
+        targetAcademicYear = await AcademicYear.create({
+          name,
+          startYear: nextStartYear,
+          endYear: newEnd,
+          isActive: true
+        });
+      }
+
+      await AcademicYear.updateOne(
+        { _id: currentAcademicYear._id },
+        { isActive: false }
+      );
+
+      await AcademicYear.updateOne(
+        { _id: targetAcademicYear._id },
+        { isActive: true }
+      );
+
+      academicYearChanged = true;
+    }
+
+    // Safety check
+    const existingRecord = await StudentAcademicRecord.findOne({
+      academicYearId: targetAcademicYear._id,
+      semesterNumber: nextSemester
+    }).select('_id');
+
+    if (existingRecord) {
+      throw new AppError('Semester shift already executed for this batch', 400);
+    }
+
+    session = await mongoose.startSession();
+    session.startTransaction();
+
+    // 🔹 Step 1: Mark previous semester records as completed
+    await StudentAcademicRecord.updateMany(
+      {
+        academicYearId: currentAcademicYear._id,
+        semesterNumber: currentSemester,
+        status: 'active'
+      },
+      {
+        $set: { status: 'completed' }
+      },
+      { session }
+    );
+
     const studentUpdates = [];
-    const academicRecordInserts = [];
-    let studentsPromoted = 0;
-    let studentsGraduated = 0;
+    const academicRecords = [];
 
-    for (const student of activeStudents) {
-      const nextSemester = student.semesterNumber + 1;
+    let promoted = 0;
+    let graduated = 0;
 
-      if (nextSemester > 8) {
-        // Graduate student
+    for (const student of students) {
+      const nextSem = student.semesterNumber + 1;
+
+      if (nextSem > 8) {
         studentUpdates.push({
           updateOne: {
             filter: { _id: student._id },
             update: { $set: { status: 'graduated' } }
           }
         });
-        studentsGraduated++;
+
+        graduated++;
       } else {
-        // Promote student
         studentUpdates.push({
           updateOne: {
             filter: { _id: student._id },
-            update: { $set: { semesterNumber: nextSemester } }
+            update: { $set: { semesterNumber: nextSem } }
           }
         });
 
-        // Add history record
-        academicRecordInserts.push({
+        academicRecords.push({
           insertOne: {
             document: {
               studentId: student._id,
               academicYearId: targetAcademicYear._id,
-              semesterNumber: nextSemester,
+              semesterNumber: nextSem,
               sectionId: student.sectionId,
               status: 'active'
             }
           }
         });
-        studentsPromoted++;
+
+        promoted++;
       }
     }
 
-    // 6. Execute Bulk Writes natively in MongoDB for high performance
-    if (studentUpdates.length > 0) {
+    if (studentUpdates.length) {
       await Student.bulkWrite(studentUpdates, { session });
     }
 
-    if (academicRecordInserts.length > 0) {
-      await StudentAcademicRecord.bulkWrite(academicRecordInserts, { session });
+    if (academicRecords.length) {
+      await StudentAcademicRecord.bulkWrite(academicRecords, { session });
     }
 
     await session.commitTransaction();
 
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
-      message: 'Global semester shift completed successfully',
+      message: 'Semester shift completed successfully',
       data: {
-        totalStudentsProcessed: activeStudents.length,
-        studentsPromoted,
-        studentsGraduated,
+        departmentId,
+        batchId,
+        totalStudents: students.length,
+        studentsPromoted: promoted,
+        studentsGraduated: graduated,
         academicYearChanged,
-        newAcademicYearName: targetAcademicYear.name
+        academicYear: targetAcademicYear.name
       }
     });
   } catch (error) {
-    await session.abortTransaction();
+    if (session) await session.abortTransaction();
     return next(StudentHelper.mapToAppError(error));
   } finally {
-    session.endSession();
+    if (session) session.endSession();
+  }
+};
+
+export const getSemesterShiftInfo = async (req, res, next) => {
+  try {
+    const { departmentId, batchId } = req.query;
+
+    if (!departmentId || !batchId) {
+      throw new AppError('departmentId and batchId are required', 400);
+    }
+
+    const students = await Student.find(
+      {
+        departmentId,
+        batchId,
+        status: 'active'
+      },
+      'semesterNumber'
+    );
+
+    if (!students.length) {
+      return res.json({
+        success: true,
+        data: {
+          currentSemester: null,
+          nextSemester: null,
+          academicYearChange: false,
+          studentCount: 0
+        }
+      });
+    }
+
+    const uniqueSemesters = new Set(students.map((s) => s.semesterNumber));
+
+    if (uniqueSemesters.size !== 1) {
+      throw new AppError(
+        'Data inconsistency detected: students have different semesters',
+        500
+      );
+    }
+
+    const currentSemester = students[0].semesterNumber;
+    const nextSemester = currentSemester + 1;
+
+    const academicYearChange = currentSemester % 2 === 0;
+
+    res.json({
+      success: true,
+      data: {
+        currentSemester,
+        nextSemester,
+        academicYearChange,
+        studentCount: students.length
+      }
+    });
+  } catch (error) {
+    return next(StudentHelper.mapToAppError(error));
   }
 };

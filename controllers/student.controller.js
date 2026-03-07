@@ -3,6 +3,10 @@ import xlsx from 'xlsx';
 import Student from '../models/Student.js';
 import User from '../models/User.js';
 import StudentAcademicRecord from '../models/StudentAcademicRecord.js';
+import Department from '../models/Department.js';
+import Batch from '../models/Batch.js';
+import BatchProgram from '../models/BatchProgram.js';
+import Section from '../models/Section.js';
 import AppError from '../utils/AppError.js';
 import StudentHelper from '../utils/StudentHelper.js';
 
@@ -541,143 +545,252 @@ export const getAllStudents = async (req, res, next) => {
 };
 
 export const uploadMultipleStudents = async (req, res, next) => {
+  let session;
+
   try {
     if (!req.file) throw new AppError('No file uploaded', 400);
 
     const workbook = req.file.buffer
       ? xlsx.read(req.file.buffer, { type: 'buffer' })
       : xlsx.readFile(req.file.path);
+
     const sheet = workbook.SheetNames[0];
     const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheet]);
 
-    let inserted = 0,
-      skipped = 0,
-      failed = 0;
-    const activeAcademicYear = await StudentHelper.getActiveAcademicYear();
-
-    for (const row of rows) {
-      const session = await mongoose.startSession();
-      session.startTransaction();
-      try {
-        const {
-          email,
-          password,
-          firstName,
-          lastName,
-          registerNumber,
-          semesterNumber,
-          departmentId,
-          batchId,
-          sectionId
-        } = row;
-
-        // RULE 6: Bulk Field Validation
-        if (
-          !email ||
-          !firstName ||
-          !lastName ||
-          !registerNumber ||
-          !departmentId ||
-          !batchId
-        ) {
-          failed++;
-          await session.abortTransaction();
-          session.endSession();
-          continue;
-        }
-
-        const normalizedEmail = String(email).toLowerCase().trim();
-        const normalizedRegister = String(registerNumber).toUpperCase().trim();
-
-        const duplicateExists =
-          (await User.findOne({ email: normalizedEmail }).session(session)) ||
-          (await Student.findOne({
-            registerNumber: normalizedRegister
-          }).session(session));
-
-        if (duplicateExists) {
-          skipped++;
-          await session.abortTransaction();
-          session.endSession();
-          continue;
-        }
-
-        const { section, batch } = await StudentHelper.resolveContext(
-          departmentId,
-          batchId,
-          sectionId
-        );
-        const finalSem = Number(semesterNumber) || 1;
-
-        // RULE 1: SEMESTER VALIDATION ALGORITHM
-        const yearDifference = activeAcademicYear.startYear - batch.startYear;
-        const maxAllowedSemester = yearDifference * 2 + 2;
-
-        if (finalSem < 1 || finalSem > maxAllowedSemester) {
-          failed++; // Violates batch mapping rules
-          await session.abortTransaction();
-          session.endSession();
-          continue;
-        }
-
-        const [user] = await User.create(
-          [
-            {
-              email: normalizedEmail,
-              password: password || '123456',
-              role: 'STUDENT'
-            }
-          ],
-          { session }
-        );
-
-        const [student] = await Student.create(
-          [
-            {
-              userId: user._id,
-              departmentId,
-              batchId,
-              sectionId: section._id,
-              firstName,
-              lastName,
-              registerNumber: normalizedRegister,
-              semesterNumber: finalSem
-            }
-          ],
-          { session }
-        );
-
-        // RULE 5: Ensure Uniqueness Constraint when bulk inserting
-        await StudentAcademicRecord.create(
-          [
-            {
-              studentId: student._id,
-              academicYearId: activeAcademicYear._id,
-              semesterNumber: finalSem,
-              sectionId: section._id,
-              status: 'active'
-            }
-          ],
-          { session }
-        );
-
-        await session.commitTransaction();
-        inserted++;
-      } catch (error) {
-        await session.abortTransaction();
-        failed++;
-      } finally {
-        session.endSession();
-      }
+    if (!rows.length) {
+      throw new AppError('The uploaded Excel file is empty', 400);
     }
 
-    return res.json({
+    const activeAcademicYear = await StudentHelper.getActiveAcademicYear();
+
+    // ===============================
+    // PREFETCH CONFIG DATA
+    // ===============================
+
+    const [departments, batches, batchPrograms, sections] = await Promise.all([
+      Department.find(),
+      Batch.find(),
+      BatchProgram.find(),
+      Section.find()
+    ]);
+
+    const deptMap = new Map(departments.map((d) => [d.code.toUpperCase(), d]));
+    const batchMap = new Map(batches.map((b) => [b.name, b]));
+
+    // Map BatchProgram -> Sections
+    const bpSectionsMap = new Map();
+    for (const bp of batchPrograms) {
+      const bpSecs = sections.filter(
+        (s) => s.batchProgramId.toString() === bp._id.toString()
+      );
+      bpSectionsMap.set(bp._id.toString(), bpSecs);
+    }
+
+    // ===============================
+    // PREFETCH EXISTING USERS
+    // ===============================
+
+    const emails = rows.map((r) => String(r.email).toLowerCase().trim());
+    const registers = rows.map((r) =>
+      String(r.registerNumber).toUpperCase().trim()
+    );
+
+    const [existingUsers, existingStudents] = await Promise.all([
+      User.find({ email: { $in: emails } }).select('email'),
+      Student.find({ registerNumber: { $in: registers } }).select(
+        'registerNumber'
+      )
+    ]);
+
+    const emailSet = new Set(existingUsers.map((u) => u.email));
+    const registerSet = new Set(existingStudents.map((s) => s.registerNumber));
+
+    // ===============================
+    // SECTION STUDENT COUNTS
+    // ===============================
+
+    const studentCounts = await Student.aggregate([
+      { $match: { status: 'active', sectionId: { $ne: null } } },
+      { $group: { _id: '$sectionId', count: { $sum: 1 } } }
+    ]);
+
+    const sectionCountMap = new Map(
+      studentCounts.map((c) => [c._id.toString(), c.count])
+    );
+
+    // ===============================
+    // ARRAYS FOR BULK INSERT
+    // ===============================
+
+    const users = [];
+    const students = [];
+    const academicRecords = [];
+
+    let rowIndex = 2;
+
+    for (const row of rows) {
+      const {
+        firstName,
+        lastName,
+        registerNumber,
+        rollNumber,
+        semesterNumber,
+        email,
+        gender,
+        dateOfBirth,
+        departmentCode,
+        batchName
+      } = row;
+
+      if (
+        !email ||
+        !firstName ||
+        !lastName ||
+        !registerNumber ||
+        !departmentCode ||
+        !batchName
+      ) {
+        throw new AppError(`Row ${rowIndex}: Missing required fields`, 400);
+      }
+
+      const normalizedEmail = String(email).toLowerCase().trim();
+      const normalizedRegister = String(registerNumber).toUpperCase().trim();
+      const normDeptCode = String(departmentCode).toUpperCase().trim();
+      const normBatchName = String(batchName).trim();
+
+      if (emailSet.has(normalizedEmail)) {
+        throw new AppError(`Row ${rowIndex}: Email already exists`, 400);
+      }
+
+      if (registerSet.has(normalizedRegister)) {
+        throw new AppError(
+          `Row ${rowIndex}: Register number already exists`,
+          400
+        );
+      }
+
+      const department = deptMap.get(normDeptCode);
+      const batch = batchMap.get(normBatchName);
+
+      if (!department) {
+        throw new AppError(`Row ${rowIndex}: Invalid department code`, 400);
+      }
+
+      if (!batch) {
+        throw new AppError(`Row ${rowIndex}: Invalid batch`, 400);
+      }
+
+      // Semester validation
+      const finalSem = Number(semesterNumber) || 1;
+      const yearDiff = activeAcademicYear.startYear - batch.startYear;
+      const maxSemester = yearDiff * 2 + 2;
+
+      if (finalSem < 1 || finalSem > maxSemester) {
+        throw new AppError(
+          `Row ${rowIndex}: Invalid semester ${finalSem}`,
+          400
+        );
+      }
+
+      // Find batch program
+      const batchProgram = batchPrograms.find(
+        (bp) =>
+          bp.departmentId.toString() === department._id.toString() &&
+          bp.batchId.toString() === batch._id.toString()
+      );
+
+      if (!batchProgram) {
+        throw new AppError(`Row ${rowIndex}: BatchProgram not configured`, 400);
+      }
+
+      const availableSections =
+        bpSectionsMap.get(batchProgram._id.toString()) || [];
+
+      const standardSections = availableSections
+        .filter((s) => s.name !== 'UNALLOCATED')
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      let assignedSection = null;
+
+      for (const sec of standardSections) {
+        const currentCount = sectionCountMap.get(sec._id.toString()) || 0;
+
+        if (currentCount < sec.capacity) {
+          assignedSection = sec;
+          sectionCountMap.set(sec._id.toString(), currentCount + 1);
+          break;
+        }
+      }
+
+      if (!assignedSection) {
+        assignedSection = availableSections.find(
+          (s) => s.name === 'UNALLOCATED'
+        );
+      }
+
+      const userId = new mongoose.Types.ObjectId();
+      const studentId = new mongoose.Types.ObjectId();
+
+      users.push({
+        _id: userId,
+        email: normalizedEmail,
+        password: row.password || '123456',
+        role: 'STUDENT',
+        gender,
+        dateOfBirth
+      });
+
+      students.push({
+        _id: studentId,
+        userId,
+        departmentId: department._id,
+        batchId: batch._id,
+        sectionId: assignedSection._id,
+        firstName,
+        lastName,
+        registerNumber: normalizedRegister,
+        rollNumber,
+        semesterNumber: finalSem,
+        status: 'active'
+      });
+
+      academicRecords.push({
+        studentId,
+        academicYearId: activeAcademicYear._id,
+        semesterNumber: finalSem,
+        sectionId: assignedSection._id,
+        status: 'active'
+      });
+
+      emailSet.add(normalizedEmail);
+      registerSet.add(normalizedRegister);
+
+      rowIndex++;
+    }
+
+    // ===============================
+    // TRANSACTION (WRITE ONLY)
+    // ===============================
+
+    session = await mongoose.startSession();
+    session.startTransaction();
+
+    await User.insertMany(users, { session });
+    await Student.insertMany(students, { session });
+    await StudentAcademicRecord.insertMany(academicRecords, { session });
+
+    await session.commitTransaction();
+
+    res.json({
       success: true,
-      message: 'Upload completed',
-      data: { inserted, skipped, failed }
+      message: 'Upload completed successfully',
+      data: { inserted: students.length }
     });
   } catch (error) {
+    if (session) await session.abortTransaction();
     return next(StudentHelper.mapToAppError(error));
+  } finally {
+    if (session) session.endSession();
   }
 };
 

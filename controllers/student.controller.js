@@ -294,32 +294,30 @@ export const updateStudent = async (req, res, next) => {
 };
 
 export const deleteStudent = async (req, res, next) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id))
       throw new AppError('Invalid student ID', 400);
 
-    const student = await Student.findById(id).session(session);
+    const student = await Student.findById(id);
     if (!student) throw new AppError('Student not found', 404);
 
-    await User.findByIdAndDelete(student.userId).session(session);
-    await StudentAcademicRecord.deleteMany({ studentId: id }).session(session);
-    await Student.findByIdAndDelete(id).session(session);
+    const user = await User.findById(student.userId);
+    if (user) {
+      user.isActive = false;
+      await user.save({ validateBeforeSave: false });
+    }
 
-    await session.commitTransaction();
+    await StudentAcademicRecord.deleteMany({ studentId: id });
+    await Student.findByIdAndDelete(id);
+
     return res.json({
       success: true,
       message: 'Student deleted successfully',
       data: {}
     });
   } catch (error) {
-    await session.abortTransaction();
     return next(StudentHelper.mapToAppError(error));
-  } finally {
-    session.endSession();
   }
 };
 
@@ -331,8 +329,7 @@ export const getAllStudents = async (req, res, next) => {
       departmentId,
       batchId,
       sectionId,
-      status,
-      admissionYear
+      status
     } = req.query;
 
     let students;
@@ -365,8 +362,6 @@ export const getAllStudents = async (req, res, next) => {
         );
       if (status)
         studentMatchStage['student.status'] = String(status).toLowerCase();
-      if (admissionYear)
-        studentMatchStage['student.admissionYear'] = Number(admissionYear);
 
       students = await StudentAcademicRecord.aggregate([
         { $match: matchStage }, // Rule 1: Match early
@@ -435,7 +430,7 @@ export const getAllStudents = async (req, res, next) => {
             lastName: '$student.lastName',
             registerNumber: '$student.registerNumber',
             status: '$student.status',
-            admissionYear: '$student.admissionYear',
+            rollNumber: '$student.rollNumber',
             semesterNumber: '$semesterNumber', // Rule 4: Reuse from AcademicRecord
             yearLevel: { $ceil: { $divide: ['$semesterNumber', 2] } },
             academicYear: {
@@ -475,7 +470,6 @@ export const getAllStudents = async (req, res, next) => {
       if (sectionId)
         filter.sectionId = StudentHelper.toObjectId(sectionId, 'sectionId');
       if (status) filter.status = String(status).toLowerCase();
-      if (admissionYear) filter.admissionYear = Number(admissionYear);
       if (semesterNumber) filter.semesterNumber = Number(semesterNumber);
 
       students = await Student.find(filter)
@@ -1000,8 +994,7 @@ export const semesterShift = async (req, res, next) => {
 
     // 2. Fetch all active students
     const activeStudents = await Student.find({
-      status: 'active',
-      isActive: true
+      status: 'active'
     }).session(session);
 
     if (activeStudents.length === 0) {
@@ -1081,7 +1074,7 @@ export const semesterShift = async (req, res, next) => {
         studentUpdates.push({
           updateOne: {
             filter: { _id: student._id },
-            update: { $set: { status: 'graduated', isActive: false } }
+            update: { $set: { status: 'graduated' } }
           }
         });
         studentsGraduated++;

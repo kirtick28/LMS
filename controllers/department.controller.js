@@ -1,9 +1,6 @@
 import Department from '../models/Department.js';
 import mongoose from 'mongoose';
 
-/* ============================
-   CREATE DEPARTMENT
-============================ */
 export const createDepartment = async (req, res, next) => {
   try {
     const { name, code, program, isActive } = req.body;
@@ -50,9 +47,6 @@ export const createDepartment = async (req, res, next) => {
   }
 };
 
-/* ============================
-   GET ALL DEPARTMENTS
-============================ */
 export const getAllDepartments = async (req, res, next) => {
   try {
     const { isActive } = req.query;
@@ -76,9 +70,6 @@ export const getAllDepartments = async (req, res, next) => {
   }
 };
 
-/* ============================
-   GET DEPARTMENT BY ID
-============================ */
 export const getDepartmentById = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -112,9 +103,6 @@ export const getDepartmentById = async (req, res, next) => {
   }
 };
 
-/* ============================
-   UPDATE DEPARTMENT
-============================ */
 export const updateDepartment = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -189,9 +177,6 @@ export const updateDepartment = async (req, res, next) => {
   }
 };
 
-/* ============================
-   DELETE DEPARTMENT
-============================ */
 export const deleteDepartment = async (req, res, next) => {
   try {
     const { id } = req.params;

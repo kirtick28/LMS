@@ -142,8 +142,6 @@ const upload = multer({ storage: multer.memoryStorage() });
  *           enum: [active, graduated, dropped]
  *         semesterNumber:
  *           type: integer
- *         isActive:
- *           type: boolean
  *         fullName:
  *           type: string
  *     StudentAcademicView:
@@ -444,14 +442,15 @@ router.post('/', protect, authorize('ADMIN'), addStudent);
  *         description: Internal server error
  */
 router.put('/:id', protect, authorize('ADMIN'), updateStudent);
+
 /**
  * @swagger
  * /api/students/{id}:
  *   delete:
- *     summary: Delete student and linked user
+ *     summary: Delete student and deactivate linked user
  *     tags: [Students]
  *     description: |
- *       Deletes the student profile and linked user account.
+ *       Deletes the student profile and marks the linked user account as inactive.
  *
  *       **Access:** Authenticated users with role ADMIN only
  *     security:

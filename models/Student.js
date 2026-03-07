@@ -61,11 +61,6 @@ const studentSchema = new mongoose.Schema(
     },
     semesterNumber: {
       type: Number
-    },
-    isActive: {
-      type: Boolean,
-      default: true,
-      index: true
     }
   },
   { timestamps: true }
@@ -73,16 +68,10 @@ const studentSchema = new mongoose.Schema(
 
 studentSchema.index({ batchId: 1, status: 1 });
 studentSchema.index({ departmentId: 1, status: 1 });
-studentSchema.index({ sectionId: 1, isActive: 1 });
+studentSchema.index({ sectionId: 1, status: 1 });
 
 studentSchema.virtual('fullName').get(function () {
   return `${this.firstName} ${this.lastName}`;
-});
-
-studentSchema.pre('validate', function () {
-  if (this.status) {
-    this.isActive = !['graduated', 'dropped'].includes(this.status);
-  }
 });
 
 studentSchema.set('toJSON', { virtuals: true });

@@ -1,3 +1,7 @@
+import mongoose from 'mongoose';
+import xlsx from 'xlsx';
+import Department from '../models/Department.js';
+
 class FacultyHelper {
   /**
    * Normalize a key by removing spaces, underscores, hyphens and lowercasing

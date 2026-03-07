@@ -53,7 +53,8 @@ export const addStudent = async (req, res, next) => {
       );
 
     // Resolve Relationships & Context using Helper
-    const { section } = await StudentHelper.resolveContext(
+    // Extract both section and batch (needed for semester validation)
+    const { section, batch } = await StudentHelper.resolveContext(
       departmentId,
       batchId,
       sectionId
@@ -61,6 +62,17 @@ export const addStudent = async (req, res, next) => {
     const activeAcademicYear = await StudentHelper.getActiveAcademicYear();
 
     const finalSemesterNumber = Number(semesterNumber) || 1;
+
+    // RULE 1: SEMESTER VALIDATION ALGORITHM
+    const yearDifference = activeAcademicYear.startYear - batch.startYear;
+    const maxAllowedSemester = yearDifference * 2 + 2;
+
+    if (finalSemesterNumber < 1 || finalSemesterNumber > maxAllowedSemester) {
+      throw new AppError(
+        'Invalid semester for selected batch and academic year',
+        400
+      );
+    }
 
     // 1. Create User
     const [user] = await User.create(
@@ -95,7 +107,7 @@ export const addStudent = async (req, res, next) => {
       { session }
     );
 
-    // 3. Create Academic Record (Ensuring unique combo)
+    // RULE 2 & 5: Create Academic Record (Ensuring unique combo)
     const existingRecord = await StudentAcademicRecord.findOne({
       studentId: student._id,
       academicYearId: activeAcademicYear._id,
@@ -160,13 +172,22 @@ export const updateStudent = async (req, res, next) => {
       }
     }
 
-    // Identify if Section or Semester is changing
+    // Identify state changes before overwriting
+    const oldSemester = student.semesterNumber;
+    let newSemester = oldSemester;
+
+    // MERGED LOGIC: Strict semester validation from updateStudentSemester
+    if (updateData.semesterNumber !== undefined) {
+      newSemester = Number(updateData.semesterNumber);
+      if (!newSemester || newSemester < 1) {
+        throw new AppError('Invalid semester number', 400);
+      }
+    }
+
     const isSectionChanged =
       updateData.sectionId &&
       String(updateData.sectionId) !== String(student.sectionId);
-    const isSemesterChanged =
-      updateData.semesterNumber &&
-      Number(updateData.semesterNumber) !== student.semesterNumber;
+    const isSemesterChanged = oldSemester !== newSemester;
 
     // Validate relationships if changed
     const finalDeptId = updateData.departmentId || student.departmentId;
@@ -189,7 +210,7 @@ export const updateStudent = async (req, res, next) => {
       'departmentId',
       'batchId',
       'sectionId',
-      'semesterNumber',
+      'semesterNumber', // This now handles semester updates dynamically
       'entryType',
       'status'
     ];
@@ -199,35 +220,62 @@ export const updateStudent = async (req, res, next) => {
 
     await student.save({ session });
 
-    // Handle Section / Semester Change Logic for Academic Records
-    if (isSectionChanged || isSemesterChanged) {
-      const activeAcademicYear = await StudentHelper.getActiveAcademicYear();
-      const targetSemester = student.semesterNumber; // current updated semester
+    const activeAcademicYear = await StudentHelper.getActiveAcademicYear();
 
-      const academicRecord = await StudentAcademicRecord.findOne({
+    // RULE 4: SEMESTER CORRECTION HANDLING (Merged Flow)
+    if (isSemesterChanged) {
+      // First, ensure we don't violate the unique index for the target semester
+      const targetRecordExists = await StudentAcademicRecord.findOne({
         studentId: student._id,
         academicYearId: activeAcademicYear._id,
-        semesterNumber: targetSemester
+        semesterNumber: newSemester
       }).session(session);
 
-      if (isSemesterChanged && !academicRecord) {
-        // Create new record for new semester
-        await StudentAcademicRecord.create(
-          [
-            {
-              studentId: student._id,
-              academicYearId: activeAcademicYear._id,
-              semesterNumber: targetSemester,
-              sectionId: student.sectionId,
-              status: 'active'
-            }
-          ],
-          { session }
-        );
-      } else if (isSectionChanged && academicRecord) {
-        // Update section on current semester's record
-        academicRecord.sectionId = student.sectionId;
-        await academicRecord.save({ session });
+      if (!targetRecordExists) {
+        // Find the record for the OLD semester in the active year
+        const oldRecord = await StudentAcademicRecord.findOne({
+          studentId: student._id,
+          academicYearId: activeAcademicYear._id,
+          semesterNumber: oldSemester
+        }).session(session);
+
+        if (oldRecord) {
+          // Case A: Record exists -> Correct the semester (and section if changed)
+          oldRecord.semesterNumber = newSemester;
+          if (isSectionChanged) oldRecord.sectionId = student.sectionId;
+          await oldRecord.save({ session });
+        } else {
+          // Case B: Record does not exist -> Create new preserving uniqueness
+          await StudentAcademicRecord.create(
+            [
+              {
+                studentId: student._id,
+                academicYearId: activeAcademicYear._id,
+                semesterNumber: newSemester,
+                sectionId: student.sectionId,
+                status: 'active'
+              }
+            ],
+            { session }
+          );
+        }
+      } else if (isSectionChanged) {
+        // If target record already existed, just update section if needed
+        targetRecordExists.sectionId = student.sectionId;
+        await targetRecordExists.save({ session });
+      }
+    }
+    // RULE 3: SECTION CHANGE HANDLING (Same Semester)
+    else if (isSectionChanged) {
+      const currentRecord = await StudentAcademicRecord.findOne({
+        studentId: student._id,
+        academicYearId: activeAcademicYear._id,
+        semesterNumber: oldSemester
+      }).session(session);
+
+      if (currentRecord) {
+        currentRecord.sectionId = student.sectionId;
+        await currentRecord.save({ session });
       }
     }
 
@@ -447,63 +495,6 @@ export const getAllStudents = async (req, res, next) => {
   }
 };
 
-export const updateStudentSemester = async (req, res, next) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
-    const { id } = req.params;
-    const { semesterNumber } = req.body;
-
-    if (!mongoose.Types.ObjectId.isValid(id))
-      throw new AppError('Invalid student ID', 400);
-    const normalizedSemesterNumber = Number(semesterNumber);
-    if (!normalizedSemesterNumber || normalizedSemesterNumber < 1)
-      throw new AppError('Invalid semester number', 400);
-
-    const student = await Student.findById(id).session(session);
-    if (!student) throw new AppError('Student not found', 404);
-
-    const activeAcademicYear = await StudentHelper.getActiveAcademicYear();
-
-    student.semesterNumber = normalizedSemesterNumber;
-    await student.save({ session });
-
-    const existingRecord = await StudentAcademicRecord.findOne({
-      studentId: student._id,
-      academicYearId: activeAcademicYear._id,
-      semesterNumber: normalizedSemesterNumber
-    }).session(session);
-
-    if (!existingRecord) {
-      await StudentAcademicRecord.create(
-        [
-          {
-            studentId: student._id,
-            academicYearId: activeAcademicYear._id,
-            semesterNumber: normalizedSemesterNumber,
-            sectionId: student.sectionId,
-            status: 'active'
-          }
-        ],
-        { session }
-      );
-    }
-
-    await session.commitTransaction();
-    return res.json({
-      success: true,
-      message: 'Student semester promoted successfully',
-      data: { student }
-    });
-  } catch (error) {
-    await session.abortTransaction();
-    return next(StudentHelper.mapToAppError(error));
-  } finally {
-    session.endSession();
-  }
-};
-
 export const uploadMultipleStudents = async (req, res, next) => {
   try {
     if (!req.file) throw new AppError('No file uploaded', 400);
@@ -535,6 +526,7 @@ export const uploadMultipleStudents = async (req, res, next) => {
           sectionId
         } = row;
 
+        // RULE 6: Bulk Field Validation
         if (
           !email ||
           !firstName ||
@@ -565,12 +557,23 @@ export const uploadMultipleStudents = async (req, res, next) => {
           continue;
         }
 
-        const { section } = await StudentHelper.resolveContext(
+        const { section, batch } = await StudentHelper.resolveContext(
           departmentId,
           batchId,
           sectionId
         );
         const finalSem = Number(semesterNumber) || 1;
+
+        // RULE 1: SEMESTER VALIDATION ALGORITHM
+        const yearDifference = activeAcademicYear.startYear - batch.startYear;
+        const maxAllowedSemester = yearDifference * 2 + 2;
+
+        if (finalSem < 1 || finalSem > maxAllowedSemester) {
+          failed++; // Violates batch mapping rules
+          await session.abortTransaction();
+          session.endSession();
+          continue;
+        }
 
         const [user] = await User.create(
           [
@@ -599,6 +602,7 @@ export const uploadMultipleStudents = async (req, res, next) => {
           { session }
         );
 
+        // RULE 5: Ensure Uniqueness Constraint when bulk inserting
         await StudentAcademicRecord.create(
           [
             {
@@ -635,6 +639,7 @@ export const uploadMultipleStudents = async (req, res, next) => {
 export const getStudentStats = async (req, res, next) => {
   try {
     const { academicYearId, departmentId } = req.query;
+    console.log(academicYearId);
     let statsData;
 
     if (academicYearId) {
@@ -789,12 +794,12 @@ export const getStudentStats = async (req, res, next) => {
 
 export const getStudentDepartmentWise = async (req, res, next) => {
   try {
-    const { academicYearId } = req.query;
+    const { academicYearId, departmentId } = req.query;
     let stats;
 
     if (academicYearId) {
       // --- STRATEGY: Start from StudentAcademicRecord ---
-      stats = await StudentAcademicRecord.aggregate([
+      const pipeline = [
         {
           $match: {
             academicYearId: StudentHelper.toObjectId(
@@ -811,7 +816,22 @@ export const getStudentDepartmentWise = async (req, res, next) => {
             as: 'student'
           }
         },
-        { $unwind: '$student' },
+        { $unwind: '$student' }
+      ];
+
+      // If department filter exists, match it after joining the student data
+      if (departmentId) {
+        pipeline.push({
+          $match: {
+            'student.departmentId': StudentHelper.toObjectId(
+              departmentId,
+              'departmentId'
+            )
+          }
+        });
+      }
+
+      pipeline.push(
         {
           $group: {
             _id: '$student.departmentId', // Group by the matched student's department
@@ -875,10 +895,23 @@ export const getStudentDepartmentWise = async (req, res, next) => {
             }
           }
         }
-      ]);
+      );
+
+      stats = await StudentAcademicRecord.aggregate(pipeline);
     } else {
       // --- STRATEGY: Start directly from Student Collection ---
-      stats = await Student.aggregate([
+      const pipeline = [];
+
+      // If department filter exists, match it immediately
+      if (departmentId) {
+        pipeline.push({
+          $match: {
+            departmentId: StudentHelper.toObjectId(departmentId, 'departmentId')
+          }
+        });
+      }
+
+      pipeline.push(
         {
           $group: {
             _id: '$departmentId',
@@ -942,7 +975,9 @@ export const getStudentDepartmentWise = async (req, res, next) => {
             }
           }
         }
-      ]);
+      );
+
+      stats = await Student.aggregate(pipeline);
     }
 
     return res.json({

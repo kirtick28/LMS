@@ -3,11 +3,8 @@ import multer from 'multer';
 import {
   addStudent,
   updateStudent,
-  updateStudentSemester,
   deleteStudent,
   getAllStudents,
-  // getStudentsFiltered,
-  // swapStudentSection,
   uploadMultipleStudents,
   getStudentDepartmentWise,
   getStudentStats,
@@ -149,6 +146,67 @@ const upload = multer({ storage: multer.memoryStorage() });
  *           type: boolean
  *         fullName:
  *           type: string
+ *     StudentAcademicView:
+ *       type: object
+ *       properties:
+ *         _id:
+ *           type: string
+ *         firstName:
+ *           type: string
+ *         lastName:
+ *           type: string
+ *         registerNumber:
+ *           type: string
+ *         status:
+ *           type: string
+ *           enum: [active, graduated, dropped]
+ *         semesterNumber:
+ *           type: integer
+ *         yearLevel:
+ *           type: integer
+ *         academicYear:
+ *           type: object
+ *           properties:
+ *             _id:
+ *               type: string
+ *             name:
+ *               type: string
+ *         department:
+ *           type: object
+ *           properties:
+ *             _id:
+ *               type: string
+ *             name:
+ *               type: string
+ *             code:
+ *               type: string
+ *         batch:
+ *           type: object
+ *           properties:
+ *             _id:
+ *               type: string
+ *             name:
+ *               type: string
+ *             startYear:
+ *               type: integer
+ *             endYear:
+ *               type: integer
+ *         section:
+ *           type: object
+ *           properties:
+ *             _id:
+ *               type: string
+ *             name:
+ *               type: string
+ *         user:
+ *           type: object
+ *           properties:
+ *             _id:
+ *               type: string
+ *             email:
+ *               type: string
+ *             gender:
+ *               type: string
  *     StudentResponse:
  *       type: object
  *       properties:
@@ -176,7 +234,9 @@ const upload = multer({ storage: multer.memoryStorage() });
  *             students:
  *               type: array
  *               items:
- *                 type: object
+ *                 oneOf:
+ *                   - $ref: '#/components/schemas/Student'
+ *                   - $ref: '#/components/schemas/StudentAcademicView'
  *     StudentUploadResponse:
  *       type: object
  *       properties:
@@ -324,87 +384,66 @@ router.post('/', protect, authorize('ADMIN'), addStudent);
  * @swagger
  * /api/students/{id}:
  *   put:
- *     summary: Update student profile details
- *     tags: [Students]
+ *     summary: Update student profile and academic state
+ *     tags:
+ *       - Students
  *     description: |
- *       Updates student fields such as name, register number, department/batch/section,
- *       entry type, status, and semester.
+ *       Updates student profile fields and handles complex academic state transitions.
  *
- *       **Access:** Authenticated users with role ADMIN only
+ *       **Key Behaviors:**
+ *
+ *       - **Profile Updates:**
+ *         Modifies basic information, status, and register number (ensures uniqueness).
+ *
+ *       - **Section Changes:**
+ *         Updating `sectionId` automatically cascades and updates the student's current
+ *         `StudentAcademicRecord`.
+ *
+ *       - **Semester Corrections:**
+ *         Updating `semesterNumber` triggers a historical correction. The system safely
+ *         modifies or creates the `StudentAcademicRecord` for the target semester while
+ *         preserving past academic history constraints.
+ *
+ *       **Access:** Authenticated users with role `ADMIN` only.
+ *
  *     security:
  *       - bearerAuth: []
+ *
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
+ *         description: MongoDB ObjectId of the student
  *         schema:
  *           type: string
+ *
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             $ref: '#/components/schemas/StudentUpdateRequest'
+ *
  *     responses:
  *       200:
  *         description: Student updated successfully
+ *
+ *       400:
+ *         description: Bad request (e.g., duplicate register number, invalid semester, or invalid relationships)
+ *
  *       401:
  *         description: Unauthorized (JWT missing or invalid)
+ *
  *       403:
- *         description: Access denied (requires ADMIN)
+ *         description: Access denied (requires ADMIN role)
+ *
  *       404:
  *         description: Student not found
+ *
  *       500:
- *         description: Server error
+ *         description: Internal server error
  */
 router.put('/:id', protect, authorize('ADMIN'), updateStudent);
-
-/**
- * @swagger
- * /api/students/{id}/semester:
- *   patch:
- *     summary: Update student semester
- *     tags: [Students]
- *     description: |
- *       Updates a student's semester number and ensures an academic record exists
- *       for the active academic year and requested semester.
- *
- *       **Access:** Authenticated users with role ADMIN only
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/StudentSemesterUpdateRequest'
- *     responses:
- *       200:
- *         description: Student semester updated successfully
- *       400:
- *         description: Invalid input
- *       401:
- *         description: Unauthorized (JWT missing or invalid)
- *       403:
- *         description: Access denied (requires ADMIN)
- *       404:
- *         description: Student not found
- *       500:
- *         description: Server error
- */
-router.patch(
-  '/:id/semester',
-  protect,
-  authorize('ADMIN'),
-  updateStudentSemester
-);
-
 /**
  * @swagger
  * /api/students/{id}:
@@ -445,8 +484,9 @@ router.delete('/:id', protect, authorize('ADMIN'), deleteStudent);
  *     tags: [Students]
  *     description: |
  *       Returns students with optional filters.
- *       When `academicYearId` is provided, data is resolved via academic records and
- *       supports academic-year/semester scoped views.
+ *       If `academicYearId` is provided, students are resolved from academic records
+ *       (academic-year scoped view with joined context). Otherwise, students are read
+ *       directly from the `students` collection with populated relations.
  *
  *       **Access:** Any authenticated user (STUDENT, FACULTY, ADMIN)
  *     security:
@@ -477,10 +517,6 @@ router.delete('/:id', protect, authorize('ADMIN'), deleteStudent);
  *         schema:
  *           type: string
  *           enum: [active, graduated, dropped]
- *       - in: query
- *         name: admissionYear
- *         schema:
- *           type: integer
  *     responses:
  *       200:
  *         description: Students fetched successfully
@@ -488,6 +524,8 @@ router.delete('/:id', protect, authorize('ADMIN'), deleteStudent);
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/StudentListResponse'
+ *       400:
+ *         description: Invalid filter parameter (for example malformed ObjectId)
  *       401:
  *         description: Unauthorized (JWT missing or invalid)
  *       500:
@@ -574,6 +612,8 @@ router.post(
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/StudentYearWiseStatsResponse'
+ *       400:
+ *         description: Invalid academicYearId or departmentId format
  *       401:
  *         description: Unauthorized (JWT missing or invalid)
  *       500:
@@ -596,6 +636,10 @@ router.get('/stats/year-wise', protect, getStudentStats);
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
+ *         name: departmentId
+ *         schema:
+ *           type: string
+ *       - in: query
  *         name: academicYearId
  *         schema:
  *           type: string
@@ -606,6 +650,8 @@ router.get('/stats/year-wise', protect, getStudentStats);
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/StudentDepartmentWiseStatsResponse'
+ *       400:
+ *         description: Invalid academicYearId format
  *       401:
  *         description: Unauthorized (JWT missing or invalid)
  *       500:

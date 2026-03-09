@@ -65,7 +65,14 @@ export const loginUser = async (req, res, next) => {
       return next(new AppError('Invalid credentials', 401));
     }
 
-    await user.updateLastLogin();
+    // Keep tests deterministic while avoiding response-time penalty in runtime.
+    if (process.env.NODE_ENV === 'test') {
+      await user.updateLastLogin();
+    } else {
+      user.updateLastLogin().catch((err) => {
+        console.error('Failed to update lastLogin:', err.message);
+      });
+    }
 
     const token = generateToken(user);
 

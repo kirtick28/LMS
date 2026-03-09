@@ -1386,7 +1386,8 @@ export const getSemesterShiftInfo = async (req, res, next) => {
 
     const maxSemester = batch.programDuration * 2;
 
-    const students = await Student.find(
+    // 1️⃣ Check active students
+    const activeStudents = await Student.find(
       {
         departmentId,
         batchId,
@@ -1395,48 +1396,87 @@ export const getSemesterShiftInfo = async (req, res, next) => {
       'semesterNumber'
     ).lean();
 
-    if (!students.length) {
+    if (activeStudents.length) {
+      const uniqueSemesters = [
+        ...new Set(activeStudents.map((s) => s.semesterNumber))
+      ];
+
+      if (uniqueSemesters.length !== 1) {
+        throw new AppError(
+          'Data inconsistency detected: students have different semesters',
+          500
+        );
+      }
+
+      const currentSemester = uniqueSemesters[0];
+
+      // Case 2 → last semester but not graduated yet
+      if (currentSemester === maxSemester) {
+        return res.json({
+          success: true,
+          data: {
+            currentSemester,
+            nextSemester: null,
+            isGraduated: false
+          }
+        });
+      }
+
+      return res.json({
+        success: true,
+        data: {
+          currentSemester,
+          nextSemester: currentSemester + 1,
+          isGraduated: false
+        }
+      });
+    }
+
+    // 2️⃣ No active students → check if already graduated
+    const graduatedStudents = await Student.find(
+      {
+        departmentId,
+        batchId,
+        status: 'graduated'
+      },
+      '_id'
+    ).lean();
+
+    if (!graduatedStudents.length) {
       return res.json({
         success: true,
         data: {
           currentSemester: null,
           nextSemester: null,
-          isLastSemester: false,
-          willGraduate: false,
-          academicYearChange: false,
-          studentCount: 0
+          isGraduated: false
         }
       });
     }
 
-    const uniqueSemesters = [...new Set(students.map((s) => s.semesterNumber))];
+    const studentIds = graduatedStudents.map((s) => s._id);
 
-    if (uniqueSemesters.length !== 1) {
-      throw new AppError(
-        'Data inconsistency detected: students have different semesters',
-        500
-      );
+    const lastRecord = await StudentAcademicRecord.findOne({
+      studentId: { $in: studentIds },
+      semesterNumber: maxSemester
+    }).lean();
+
+    if (lastRecord) {
+      return res.json({
+        success: true,
+        data: {
+          currentSemester: null,
+          nextSemester: null,
+          isGraduated: true
+        }
+      });
     }
-
-    const currentSemester = uniqueSemesters[0];
-    const nextSemester = currentSemester + 1;
-
-    const isLastSemester = currentSemester >= maxSemester;
-
-    const academicYearChange = !isLastSemester && currentSemester % 2 === 0;
-
-    const willGraduate = isLastSemester;
 
     return res.json({
       success: true,
       data: {
-        currentSemester,
-        nextSemester: willGraduate ? null : nextSemester,
-        isLastSemester,
-        willGraduate,
-        academicYearChange,
-        studentCount: students.length,
-        maxSemester
+        currentSemester: null,
+        nextSemester: null,
+        isGraduated: false
       }
     });
   } catch (error) {

@@ -1,6 +1,17 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
+const getSaltRounds = () => {
+  if (process.env.NODE_ENV === 'test') return 1;
+
+  const fromEnv = Number.parseInt(process.env.BCRYPT_SALT_ROUNDS || '', 10);
+  if (Number.isInteger(fromEnv) && fromEnv >= 4 && fromEnv <= 15) {
+    return fromEnv;
+  }
+
+  return process.env.NODE_ENV === 'development' ? 10 : 12;
+};
+
 const userSchema = new mongoose.Schema(
   {
     email: {
@@ -70,7 +81,7 @@ userSchema.pre('save', async function () {
 
   if (!this.isModified('password') || !this.password) return;
 
-  const salt = await bcrypt.genSalt(process.env.NODE_ENV === 'test' ? 1 : 12);
+  const salt = await bcrypt.genSalt(getSaltRounds());
   this.password = await bcrypt.hash(this.password, salt);
 });
 

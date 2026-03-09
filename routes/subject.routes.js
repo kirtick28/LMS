@@ -30,6 +30,7 @@ const upload = multer({ storage: multer.memoryStorage() });
  *         - name
  *         - code
  *         - departmentId
+ *         - regulationId
  *       properties:
  *         name:
  *           type: string
@@ -47,9 +48,13 @@ const upload = multer({ storage: multer.memoryStorage() });
  *         departmentId:
  *           type: string
  *           description: Department ObjectId
+ *         regulationId:
+ *           type: string
+ *           description: Regulation ObjectId
  *         isActive:
  *           type: boolean
  *           example: true
+ *
  *     SubjectUpdateRequest:
  *       type: object
  *       properties:
@@ -64,8 +69,11 @@ const upload = multer({ storage: multer.memoryStorage() });
  *           enum: [T, P, TP, TPJ, PJ, I]
  *         departmentId:
  *           type: string
+ *         regulationId:
+ *           type: string
  *         isActive:
  *           type: boolean
+ *
  *     SubjectResponse:
  *       type: object
  *       properties:
@@ -78,6 +86,7 @@ const upload = multer({ storage: multer.memoryStorage() });
  *           properties:
  *             subject:
  *               type: object
+ *
  *     SubjectListResponse:
  *       type: object
  *       properties:
@@ -90,6 +99,7 @@ const upload = multer({ storage: multer.memoryStorage() });
  *               type: array
  *               items:
  *                 type: object
+ *
  *     SubjectUploadResponse:
  *       type: object
  *       properties:
@@ -115,10 +125,11 @@ const upload = multer({ storage: multer.memoryStorage() });
  *     summary: Create subject
  *     tags: [Subjects]
  *     description: |
- *       Creates a subject and links it to a department.
- *       Code is normalized to uppercase and duplicate checks are applied.
+ *       Creates a subject and links it to both department and regulation.
+ *       Code is normalized to uppercase and duplicate checks are applied
+ *       per department + regulation.
  *
- *       **Access:** Authenticated users with role ADMIN only
+ *       **Access:** ADMIN only
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -130,20 +141,14 @@ const upload = multer({ storage: multer.memoryStorage() });
  *     responses:
  *       201:
  *         description: Subject created successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SubjectResponse'
  *       400:
- *         description: Missing required fields, invalid departmentId, or department not found
+ *         description: Missing fields or invalid ids
  *       401:
- *         description: Unauthorized (JWT missing or invalid)
+ *         description: Unauthorized
  *       403:
- *         description: Access denied (requires ADMIN)
+ *         description: ADMIN access required
  *       409:
- *         description: Subject with duplicate code or duplicate name in same department
- *       500:
- *         description: Server error
+ *         description: Duplicate subject in same regulation
  */
 router.post('/', protect, authorize('ADMIN'), createSubject);
 
@@ -154,12 +159,17 @@ router.post('/', protect, authorize('ADMIN'), createSubject);
  *     summary: Bulk upload subjects from Excel
  *     tags: [Subjects]
  *     description: |
- *       Upload `.xlsx` file with `file` field.
- *       Expected columns per row: `name`, `code` and optional `credits`, `courseType`.
- *       `departmentId` must be provided either as multipart field or path param.
- *       Controller returns inserted/skipped/failed counts.
+ *       Upload `.xlsx` file.
  *
- *       **Access:** Authenticated users with role ADMIN only
+ *       Required Excel columns:
+ *
+ *       name | code | credits | courseType | startYear
+ *
+ *       `startYear` maps the subject to a Regulation.
+ *
+ *       `departmentId` must be provided in body or URL.
+ *
+ *       **Access:** ADMIN only
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -176,22 +186,9 @@ router.post('/', protect, authorize('ADMIN'), createSubject);
  *                 format: binary
  *               departmentId:
  *                 type: string
- *                 description: Department ObjectId (required if not provided in path)
  *     responses:
  *       200:
  *         description: Upload completed
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SubjectUploadResponse'
- *       400:
- *         description: No file uploaded
- *       401:
- *         description: Unauthorized (JWT missing or invalid)
- *       403:
- *         description: Access denied (requires ADMIN)
- *       500:
- *         description: Server error
  */
 router.post(
   '/upload',
@@ -205,13 +202,8 @@ router.post(
  * @swagger
  * /api/subjects/upload/{departmentId}:
  *   post:
- *     summary: Bulk upload subjects from Excel using department path param
+ *     summary: Bulk upload subjects using department path param
  *     tags: [Subjects]
- *     description: |
- *       Upload `.xlsx` file with `file` field and pass department id in URL.
- *       Expected columns per row: `name`, `code` and optional `credits`, `courseType`.
- *
- *       **Access:** Authenticated users with role ADMIN only
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -226,8 +218,6 @@ router.post(
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             required:
- *               - file
  *             properties:
  *               file:
  *                 type: string
@@ -235,18 +225,6 @@ router.post(
  *     responses:
  *       200:
  *         description: Upload completed
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SubjectUploadResponse'
- *       400:
- *         description: Missing file, invalid departmentId, or department not found
- *       401:
- *         description: Unauthorized (JWT missing or invalid)
- *       403:
- *         description: Access denied (requires ADMIN)
- *       500:
- *         description: Server error
  */
 router.post(
   '/upload/:departmentId',
@@ -263,8 +241,13 @@ router.post(
  *     summary: Get all subjects
  *     tags: [Subjects]
  *     description: |
- *       Returns subject list with populated department details.
- *       Optional filters: `departmentId`, `courseType`, `isActive`.
+ *       Returns subjects with department and regulation populated.
+ *
+ *       Filters supported:
+ *       - departmentId
+ *       - regulationId
+ *       - courseType
+ *       - isActive
  *
  *       **Access:** Any authenticated user
  *     security:
@@ -275,27 +258,17 @@ router.post(
  *         schema:
  *           type: string
  *       - in: query
+ *         name: regulationId
+ *         schema:
+ *           type: string
+ *       - in: query
  *         name: courseType
  *         schema:
  *           type: string
- *           enum: [T, P, TP, TPJ, PJ, I]
  *       - in: query
  *         name: isActive
  *         schema:
  *           type: boolean
- *     responses:
- *       200:
- *         description: Subject list fetched
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SubjectListResponse'
- *       400:
- *         description: Invalid departmentId
- *       401:
- *         description: Unauthorized (JWT missing or invalid)
- *       500:
- *         description: Server error
  */
 router.get('/', protect, getAllSubjects);
 
@@ -305,33 +278,8 @@ router.get('/', protect, getAllSubjects);
  *   get:
  *     summary: Get subject by id
  *     tags: [Subjects]
- *     description: |
- *       Returns one subject with populated department details.
- *
- *       **Access:** Any authenticated user
  *     security:
  *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Subject fetched successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SubjectResponse'
- *       400:
- *         description: Invalid subject id
- *       401:
- *         description: Unauthorized (JWT missing or invalid)
- *       404:
- *         description: Subject not found
- *       500:
- *         description: Server error
  */
 router.get('/:id', protect, getSubjectById);
 
@@ -342,43 +290,13 @@ router.get('/:id', protect, getSubjectById);
  *     summary: Update subject
  *     tags: [Subjects]
  *     description: |
- *       Updates subject details and re-validates duplicates.
- *       If `departmentId` is changed, the department is validated.
+ *       Updates subject details including department or regulation.
  *
- *       **Access:** Authenticated users with role ADMIN only
+ *       Duplicate checks are enforced per department + regulation.
+ *
+ *       **Access:** ADMIN only
  *     security:
  *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/SubjectUpdateRequest'
- *     responses:
- *       200:
- *         description: Subject updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SubjectResponse'
- *       400:
- *         description: Invalid subject id or departmentId, or department not found
- *       401:
- *         description: Unauthorized (JWT missing or invalid)
- *       403:
- *         description: Access denied (requires ADMIN)
- *       404:
- *         description: Subject not found
- *       409:
- *         description: Subject with duplicate code or duplicate name in same department
- *       500:
- *         description: Server error
  */
 router.put('/:id', protect, authorize('ADMIN'), updateSubject);
 
@@ -389,34 +307,11 @@ router.put('/:id', protect, authorize('ADMIN'), updateSubject);
  *     summary: Delete subject
  *     tags: [Subjects]
  *     description: |
- *       Deletes a subject by id.
+ *       Deletes a subject.
  *
- *       **Access:** Authenticated users with role ADMIN only
+ *       **Access:** ADMIN only
  *     security:
  *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Subject deleted successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/SubjectResponse'
- *       400:
- *         description: Invalid subject id
- *       401:
- *         description: Unauthorized (JWT missing or invalid)
- *       403:
- *         description: Access denied (requires ADMIN)
- *       404:
- *         description: Subject not found
- *       500:
- *         description: Server error
  */
 router.delete('/:id', protect, authorize('ADMIN'), deleteSubject);
 

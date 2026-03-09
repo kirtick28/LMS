@@ -31,6 +31,13 @@ const subjectSchema = new mongoose.Schema(
       required: true,
       index: true
     },
+    regulationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Regulation',
+      required: true,
+      index: true
+    },
+
     isActive: {
       type: Boolean,
       default: true,
@@ -42,5 +49,9 @@ const subjectSchema = new mongoose.Schema(
 
 subjectSchema.index({ departmentId: 1, isActive: 1 });
 subjectSchema.index({ departmentId: 1, code: 1 }, { unique: true });
+subjectSchema.index(
+  { departmentId: 1, regulationId: 1, code: 1 },
+  { unique: true }
+);
 
 export default mongoose.model('Subject', subjectSchema);

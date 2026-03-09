@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Subject from '../models/Subject.js';
 import Department from '../models/Department.js';
+import Regulation from '../models/Regulation.js';
 import xlsx from 'xlsx';
 import AppError from '../utils/AppError.js';
 
@@ -8,21 +9,28 @@ const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 export const createSubject = async (req, res, next) => {
   try {
-    const { name, code, credits, courseType, departmentId, isActive } =
-      req.body;
+    const {
+      name,
+      code,
+      credits,
+      courseType,
+      departmentId,
+      regulationId,
+      isActive
+    } = req.body;
 
-    if (!name || !code || !departmentId) {
+    if (!name || !code || !departmentId || !regulationId) {
       return res.status(400).json({
         success: false,
-        message: 'name, code and departmentId are required',
+        message: 'name, code, departmentId and regulationId are required',
         data: {}
       });
     }
 
-    if (!isValidObjectId(departmentId)) {
+    if (!isValidObjectId(departmentId) || !isValidObjectId(regulationId)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid departmentId',
+        message: 'Invalid departmentId or regulationId',
         data: {}
       });
     }
@@ -36,18 +44,29 @@ export const createSubject = async (req, res, next) => {
       });
     }
 
+    const regulation = await Regulation.findById(regulationId);
+    if (!regulation) {
+      return res.status(400).json({
+        success: false,
+        message: 'Regulation not found',
+        data: {}
+      });
+    }
+
     const normalizedName = String(name).trim();
     const normalizedCode = String(code).toUpperCase().trim();
 
     const duplicate = await Subject.findOne({
-      $or: [{ code: normalizedCode }, { departmentId, name: normalizedName }]
+      departmentId,
+      regulationId,
+      $or: [{ code: normalizedCode }, { name: normalizedName }]
     });
 
     if (duplicate) {
       return res.status(409).json({
         success: false,
         message:
-          'Subject with same code or same name in department already exists',
+          'Subject with same code or name already exists in this regulation',
         data: {}
       });
     }
@@ -58,25 +77,23 @@ export const createSubject = async (req, res, next) => {
       credits,
       courseType,
       departmentId,
+      regulationId,
       isActive
     });
 
-    const populated = await Subject.findById(subject._id).populate(
-      'departmentId',
-      'name code program isActive'
-    );
+    const populated = await Subject.findById(subject._id)
+      .populate('departmentId', 'name code program')
+      .populate('regulationId', 'name startYear');
 
     return res.status(201).json({
       success: true,
       message: 'Subject created successfully',
-      data: {
-        subject: populated
-      }
+      data: { subject: populated }
     });
   } catch (error) {
     if (error.code === 11000) {
       return next(
-        new AppError('Subject code already exists in this department', 409)
+        new AppError('Subject code already exists in this regulation', 409)
       );
     }
 
@@ -86,7 +103,7 @@ export const createSubject = async (req, res, next) => {
 
 export const getAllSubjects = async (req, res, next) => {
   try {
-    const { departmentId, courseType, isActive } = req.query;
+    const { departmentId, regulationId, courseType, isActive } = req.query;
 
     const filter = {};
 
@@ -101,6 +118,17 @@ export const getAllSubjects = async (req, res, next) => {
       filter.departmentId = departmentId;
     }
 
+    if (regulationId) {
+      if (!isValidObjectId(regulationId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid regulationId',
+          data: {}
+        });
+      }
+      filter.regulationId = regulationId;
+    }
+
     if (courseType) {
       filter.courseType = String(courseType).toUpperCase().trim();
     }
@@ -110,15 +138,14 @@ export const getAllSubjects = async (req, res, next) => {
     }
 
     const subjects = await Subject.find(filter)
-      .populate('departmentId', 'name code program isActive')
-      .sort({ code: 1, name: 1 });
+      .populate('departmentId', 'name code program')
+      .populate('regulationId', 'name startYear')
+      .sort({ code: 1 });
 
     return res.json({
       success: true,
       message: 'Subjects retrieved successfully',
-      data: {
-        subjects
-      }
+      data: { subjects }
     });
   } catch (error) {
     return next(error);
@@ -137,10 +164,9 @@ export const getSubjectById = async (req, res, next) => {
       });
     }
 
-    const subject = await Subject.findById(id).populate(
-      'departmentId',
-      'name code program isActive'
-    );
+    const subject = await Subject.findById(id)
+      .populate('departmentId', 'name code program')
+      .populate('regulationId', 'name startYear');
 
     if (!subject) {
       return res.status(404).json({
@@ -153,9 +179,7 @@ export const getSubjectById = async (req, res, next) => {
     return res.json({
       success: true,
       message: 'Subject retrieved successfully',
-      data: {
-        subject
-      }
+      data: { subject }
     });
   } catch (error) {
     return next(error);
@@ -176,6 +200,7 @@ export const updateSubject = async (req, res, next) => {
     }
 
     const current = await Subject.findById(id);
+
     if (!current) {
       return res.status(404).json({
         success: false,
@@ -184,50 +209,28 @@ export const updateSubject = async (req, res, next) => {
       });
     }
 
-    if (updates.departmentId) {
-      if (!isValidObjectId(updates.departmentId)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid departmentId',
-          data: {}
-        });
-      }
+    if (updates.name !== undefined) updates.name = String(updates.name).trim();
 
-      const department = await Department.findById(updates.departmentId);
-      if (!department) {
-        return res.status(400).json({
-          success: false,
-          message: 'Department not found',
-          data: {}
-        });
-      }
-    }
-
-    if (updates.name !== undefined) {
-      updates.name = String(updates.name).trim();
-    }
-
-    if (updates.code !== undefined) {
+    if (updates.code !== undefined)
       updates.code = String(updates.code).toUpperCase().trim();
-    }
 
     const targetDepartmentId = updates.departmentId || current.departmentId;
+    const targetRegulationId = updates.regulationId || current.regulationId;
     const targetName = updates.name || current.name;
     const targetCode = updates.code || current.code;
 
     const duplicate = await Subject.findOne({
       _id: { $ne: id },
-      $or: [
-        { code: targetCode },
-        { departmentId: targetDepartmentId, name: targetName }
-      ]
+      departmentId: targetDepartmentId,
+      regulationId: targetRegulationId,
+      $or: [{ code: targetCode }, { name: targetName }]
     });
 
     if (duplicate) {
       return res.status(409).json({
         success: false,
         message:
-          'Subject with same code or same name in department already exists',
+          'Subject with same name or code already exists in this regulation',
         data: {}
       });
     }
@@ -235,20 +238,18 @@ export const updateSubject = async (req, res, next) => {
     const subject = await Subject.findByIdAndUpdate(id, updates, {
       new: true,
       runValidators: true
-    }).populate('departmentId', 'name code program isActive');
+    })
+      .populate('departmentId', 'name code program')
+      .populate('regulationId', 'name startYear');
 
     return res.json({
       success: true,
       message: 'Subject updated successfully',
-      data: {
-        subject
-      }
+      data: { subject }
     });
   } catch (error) {
     if (error.code === 11000) {
-      return next(
-        new AppError('Subject code already exists in this department', 409)
-      );
+      return next(new AppError('Subject code already exists', 409));
     }
 
     return next(error);
@@ -280,9 +281,7 @@ export const deleteSubject = async (req, res, next) => {
     return res.json({
       success: true,
       message: 'Subject deleted successfully',
-      data: {
-        subject
-      }
+      data: { subject }
     });
   } catch (error) {
     return next(error);
@@ -301,18 +300,10 @@ export const uploadMultipleSubjects = async (req, res, next) => {
 
     const departmentId = req.params.departmentId || req.body.departmentId;
 
-    if (!departmentId) {
+    if (!departmentId || !isValidObjectId(departmentId)) {
       return res.status(400).json({
         success: false,
-        message: 'departmentId is required in params or body',
-        data: {}
-      });
-    }
-
-    if (!isValidObjectId(departmentId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid departmentId',
+        message: 'Valid departmentId required',
         data: {}
       });
     }
@@ -331,8 +322,8 @@ export const uploadMultipleSubjects = async (req, res, next) => {
       ? xlsx.read(req.file.buffer, { type: 'buffer' })
       : xlsx.readFile(req.file.path);
 
-    const sheetName = workbook.SheetNames[0];
-    const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = xlsx.utils.sheet_to_json(sheet);
 
     let inserted = 0;
     let skipped = 0;
@@ -344,8 +335,18 @@ export const uploadMultipleSubjects = async (req, res, next) => {
         const code = row.code || row.Code;
         const credits = row.credits ?? row.Credits;
         const courseType = row.courseType || row.CourseType;
+        const regulationYear = row.startYear || row.RegulationYear;
 
-        if (!name || !code) {
+        if (!name || !code || !regulationYear) {
+          failed++;
+          continue;
+        }
+
+        const regulation = await Regulation.findOne({
+          startYear: regulationYear
+        });
+
+        if (!regulation) {
           failed++;
           continue;
         }
@@ -354,10 +355,9 @@ export const uploadMultipleSubjects = async (req, res, next) => {
         const normalizedCode = String(code).toUpperCase().trim();
 
         const duplicate = await Subject.findOne({
-          $or: [
-            { code: normalizedCode },
-            { departmentId, name: normalizedName }
-          ]
+          departmentId,
+          regulationId: regulation._id,
+          $or: [{ code: normalizedCode }, { name: normalizedName }]
         });
 
         if (duplicate) {
@@ -370,11 +370,12 @@ export const uploadMultipleSubjects = async (req, res, next) => {
           code: normalizedCode,
           credits,
           courseType,
-          departmentId
+          departmentId,
+          regulationId: regulation._id
         });
 
         inserted++;
-      } catch (error) {
+      } catch (err) {
         failed++;
       }
     }

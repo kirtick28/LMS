@@ -671,8 +671,6 @@ export const getAllStudents = async (req, res, next) => {
       status
     } = req.query;
 
-    const recordStatus = status ? String(status).toLowerCase() : 'active';
-
     let students;
 
     if (academicYearId) {
@@ -680,33 +678,35 @@ export const getAllStudents = async (req, res, next) => {
         academicYearId: StudentHelper.toObjectId(
           academicYearId,
           'academicYearId'
-        ),
-        status: recordStatus
+        )
       };
 
+      if (status) matchStage.status = String(status).toLowerCase();
       if (semesterNumber) matchStage.semesterNumber = Number(semesterNumber);
 
       const studentMatchStage = {};
+
       if (departmentId)
         studentMatchStage['student.departmentId'] = StudentHelper.toObjectId(
           departmentId,
           'departmentId'
         );
+
       if (batchId)
         studentMatchStage['student.batchId'] = StudentHelper.toObjectId(
           batchId,
           'batchId'
         );
+
       if (sectionId)
         studentMatchStage['student.sectionId'] = StudentHelper.toObjectId(
           sectionId,
           'sectionId'
         );
-      if (status)
-        studentMatchStage['student.status'] = String(status).toLowerCase();
 
       students = await StudentAcademicRecord.aggregate([
         { $match: matchStage },
+
         {
           $lookup: {
             from: 'students',
@@ -716,7 +716,9 @@ export const getAllStudents = async (req, res, next) => {
           }
         },
         { $unwind: '$student' },
+
         { $match: studentMatchStage },
+
         {
           $lookup: {
             from: 'users',
@@ -726,6 +728,7 @@ export const getAllStudents = async (req, res, next) => {
           }
         },
         { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+
         {
           $lookup: {
             from: 'departments',
@@ -735,6 +738,7 @@ export const getAllStudents = async (req, res, next) => {
           }
         },
         { $unwind: { path: '$department', preserveNullAndEmptyArrays: true } },
+
         {
           $lookup: {
             from: 'batches',
@@ -744,6 +748,7 @@ export const getAllStudents = async (req, res, next) => {
           }
         },
         { $unwind: { path: '$batch', preserveNullAndEmptyArrays: true } },
+
         {
           $lookup: {
             from: 'sections',
@@ -753,6 +758,7 @@ export const getAllStudents = async (req, res, next) => {
           }
         },
         { $unwind: { path: '$section', preserveNullAndEmptyArrays: true } },
+
         {
           $lookup: {
             from: 'academicyears',
@@ -764,6 +770,7 @@ export const getAllStudents = async (req, res, next) => {
         {
           $unwind: { path: '$academicYear', preserveNullAndEmptyArrays: true }
         },
+
         {
           $project: {
             _id: '$student._id',
@@ -774,44 +781,58 @@ export const getAllStudents = async (req, res, next) => {
             rollNumber: '$student.rollNumber',
             semesterNumber: '$semesterNumber',
             yearLevel: { $ceil: { $divide: ['$semesterNumber', 2] } },
+
             academicYear: {
               _id: '$academicYear._id',
               name: '$academicYear.name'
             },
+
             department: {
               _id: '$department._id',
               name: '$department.name',
               code: '$department.code'
             },
+
             batch: {
               _id: '$batch._id',
               name: '$batch.name',
               startYear: '$batch.startYear',
               endYear: '$batch.endYear'
             },
-            section: { _id: '$section._id', name: '$section.name' },
+
+            section: {
+              _id: '$section._id',
+              name: '$section.name'
+            },
+
             user: {
               _id: '$user._id',
               email: '$user.email',
               gender: '$user.gender',
               dateOfBirth: '$user.dateOfBirth'
             },
+
             isActive: '$user.isActive'
           }
         }
       ]);
     } else {
       const filter = {};
+
       if (departmentId)
         filter.departmentId = StudentHelper.toObjectId(
           departmentId,
           'departmentId'
         );
+
       if (batchId)
         filter.batchId = StudentHelper.toObjectId(batchId, 'batchId');
+
       if (sectionId)
         filter.sectionId = StudentHelper.toObjectId(sectionId, 'sectionId');
+
       if (status) filter.status = String(status).toLowerCase();
+
       if (semesterNumber) filter.semesterNumber = Number(semesterNumber);
 
       students = await Student.find(filter)
@@ -1194,7 +1215,13 @@ export const semesterShift = async (req, res, next) => {
       throw new AppError('departmentId and batchId are required', 400);
     }
 
-    const currentAcademicYear = await StudentHelper.getActiveAcademicYear();
+    const batch = await Batch.findById(batchId);
+
+    if (!batch) {
+      throw new AppError('Batch not found', 404);
+    }
+
+    const maxSemester = batch.programDuration * 2;
 
     const students = await Student.find(
       {
@@ -1212,69 +1239,59 @@ export const semesterShift = async (req, res, next) => {
       );
     }
 
-    const currentSemester = students[0].semesterNumber;
+    const uniqueSemesters = [...new Set(students.map((s) => s.semesterNumber))];
+
+    if (uniqueSemesters.length !== 1) {
+      throw new AppError(
+        'Data inconsistency: students have different semesters',
+        500
+      );
+    }
+
+    const currentSemester = uniqueSemesters[0];
     const nextSemester = currentSemester + 1;
 
+    const isLastSemester = currentSemester >= maxSemester;
     const evenToOddTransition = currentSemester % 2 === 0;
+
+    const currentAcademicYear = await StudentHelper.getActiveAcademicYear();
 
     let targetAcademicYear = currentAcademicYear;
     let academicYearChanged = false;
 
-    if (evenToOddTransition) {
+    if (!isLastSemester && evenToOddTransition) {
       const nextStartYear = currentAcademicYear.startYear + 1;
+      const nextEndYear = currentAcademicYear.endYear + 1;
 
       targetAcademicYear = await AcademicYear.findOne({
         startYear: nextStartYear
       });
 
       if (!targetAcademicYear) {
-        const newEnd = currentAcademicYear.endYear + 1;
-        const name = `${nextStartYear}-${String(newEnd).slice(-2)}`;
-
         targetAcademicYear = await AcademicYear.create({
-          name,
+          name: `${nextStartYear}-${nextEndYear}`,
           startYear: nextStartYear,
-          endYear: newEnd,
-          isActive: true
+          endYear: nextEndYear,
+          isActive: false
         });
       }
 
-      await AcademicYear.updateOne(
-        { _id: currentAcademicYear._id },
-        { isActive: false }
-      );
-
-      await AcademicYear.updateOne(
-        { _id: targetAcademicYear._id },
-        { isActive: true }
-      );
-
       academicYearChanged = true;
-    }
-
-    // Safety check
-    const existingRecord = await StudentAcademicRecord.findOne({
-      academicYearId: targetAcademicYear._id,
-      semesterNumber: nextSemester
-    }).select('_id');
-
-    if (existingRecord) {
-      throw new AppError('Semester shift already executed for this batch', 400);
     }
 
     session = await mongoose.startSession();
     session.startTransaction();
 
-    // 🔹 Step 1: Mark previous semester records as completed
+    const studentIds = students.map((s) => s._id);
+
     await StudentAcademicRecord.updateMany(
       {
+        studentId: { $in: studentIds },
         academicYearId: currentAcademicYear._id,
         semesterNumber: currentSemester,
         status: 'active'
       },
-      {
-        $set: { status: 'completed' }
-      },
+      { $set: { status: 'completed' } },
       { session }
     );
 
@@ -1285,9 +1302,7 @@ export const semesterShift = async (req, res, next) => {
     let graduated = 0;
 
     for (const student of students) {
-      const nextSem = student.semesterNumber + 1;
-
-      if (nextSem > 8) {
+      if (isLastSemester) {
         studentUpdates.push({
           updateOne: {
             filter: { _id: student._id },
@@ -1300,7 +1315,7 @@ export const semesterShift = async (req, res, next) => {
         studentUpdates.push({
           updateOne: {
             filter: { _id: student._id },
-            update: { $set: { semesterNumber: nextSem } }
+            update: { $set: { semesterNumber: nextSemester } }
           }
         });
 
@@ -1309,7 +1324,7 @@ export const semesterShift = async (req, res, next) => {
             document: {
               studentId: student._id,
               academicYearId: targetAcademicYear._id,
-              semesterNumber: nextSem,
+              semesterNumber: nextSemester,
               sectionId: student.sectionId,
               status: 'active'
             }
@@ -1332,13 +1347,17 @@ export const semesterShift = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: 'Semester shift completed successfully',
+      message: isLastSemester
+        ? 'Students graduated successfully'
+        : 'Semester shifted successfully',
       data: {
         departmentId,
         batchId,
         totalStudents: students.length,
         studentsPromoted: promoted,
         studentsGraduated: graduated,
+        currentSemester,
+        nextSemester: isLastSemester ? null : nextSemester,
         academicYearChanged,
         academicYear: targetAcademicYear.name
       }
@@ -1359,6 +1378,14 @@ export const getSemesterShiftInfo = async (req, res, next) => {
       throw new AppError('departmentId and batchId are required', 400);
     }
 
+    const batch = await Batch.findById(batchId).lean();
+
+    if (!batch) {
+      throw new AppError('Batch not found', 404);
+    }
+
+    const maxSemester = batch.programDuration * 2;
+
     const students = await Student.find(
       {
         departmentId,
@@ -1366,7 +1393,7 @@ export const getSemesterShiftInfo = async (req, res, next) => {
         status: 'active'
       },
       'semesterNumber'
-    );
+    ).lean();
 
     if (!students.length) {
       return res.json({
@@ -1374,33 +1401,42 @@ export const getSemesterShiftInfo = async (req, res, next) => {
         data: {
           currentSemester: null,
           nextSemester: null,
+          isLastSemester: false,
+          willGraduate: false,
           academicYearChange: false,
           studentCount: 0
         }
       });
     }
 
-    const uniqueSemesters = new Set(students.map((s) => s.semesterNumber));
+    const uniqueSemesters = [...new Set(students.map((s) => s.semesterNumber))];
 
-    if (uniqueSemesters.size !== 1) {
+    if (uniqueSemesters.length !== 1) {
       throw new AppError(
         'Data inconsistency detected: students have different semesters',
         500
       );
     }
 
-    const currentSemester = students[0].semesterNumber;
+    const currentSemester = uniqueSemesters[0];
     const nextSemester = currentSemester + 1;
 
-    const academicYearChange = currentSemester % 2 === 0;
+    const isLastSemester = currentSemester >= maxSemester;
 
-    res.json({
+    const academicYearChange = !isLastSemester && currentSemester % 2 === 0;
+
+    const willGraduate = isLastSemester;
+
+    return res.json({
       success: true,
       data: {
         currentSemester,
-        nextSemester,
+        nextSemester: willGraduate ? null : nextSemester,
+        isLastSemester,
+        willGraduate,
         academicYearChange,
-        studentCount: students.length
+        studentCount: students.length,
+        maxSemester
       }
     });
   } catch (error) {

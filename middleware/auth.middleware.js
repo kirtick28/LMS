@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import Faculty from '../models/Faculty.js';
 
 /* ============================
    PROTECT ROUTES
@@ -27,7 +28,20 @@ export const protect = async (req, res, next) => {
       return res.status(401).json({ message: 'User not found or inactive' });
     }
 
-    req.user = user;
+    req.user = user.toObject ? user.toObject() : { ...user };
+    if (user.role === 'FACULTY') {
+      const faculty = await Faculty.findOne({ userId: user._id }).lean();
+      if (!faculty) {
+        return res.status(404).json({
+          success: false,
+          message: 'Faculty not found',
+          data: {}
+        });
+      }
+      req.user.departmentId = faculty.departmentId;
+      req.user.role = 'HOD';
+    }
+
     next();
   } catch (error) {
     return res.status(401).json({ message: 'Token invalid' });

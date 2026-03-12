@@ -845,7 +845,7 @@ export const getAllStudents = async (req, res, next) => {
     return res.json({
       success: true,
       message: 'Students fetched successfully',
-      data: { students }
+      data: { count: students.length, students }
     });
   } catch (error) {
     return next(StudentHelper.mapToAppError(error));

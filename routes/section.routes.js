@@ -4,7 +4,9 @@ import {
   getAllSections,
   getSectionById,
   updateSection,
-  deleteSection
+  deleteSection,
+  getCurrentYearsSections,
+  moveStudents
 } from '../controllers/section.controller.js';
 import { protect, authorize } from '../middleware/auth.middleware.js';
 
@@ -138,6 +140,60 @@ router.get('/', protect, getAllSections);
 
 /**
  * @swagger
+ * /api/sections/current-year:
+ *   get:
+ *     summary: Get current academic year's sections by department
+ *     tags: [Sections]
+ *     description: |
+ *       Returns all sections for the current academic year, grouped by year, for the department of the logged-in faculty.
+ *       Each year contains batch, batchProgram, and section details with student counts.
+ *
+ *       **Access:** Authenticated users with role HOD only
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Current year's sections retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     years:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           year:
+ *                             type: integer
+ *                           batchProgramId:
+ *                             type: string
+ *                           batch:
+ *                             type: object
+ *                           sections:
+ *                             type: array
+ *                             items:
+ *                               type: object
+ *       401:
+ *         description: Unauthorized (JWT missing or invalid)
+ *       403:
+ *         description: Access denied (requires HOD)
+ *       404:
+ *         description: Faculty or academic year not found
+ *       500:
+ *         description: Server error
+ */
+router.get('/current-year', protect, authorize('HOD'), getCurrentYearsSections);
+
+/**
+ * @swagger
  * /api/sections/{id}:
  *   get:
  *     summary: Get section by id
@@ -248,5 +304,51 @@ router.put('/:id', protect, authorize('ADMIN'), updateSection);
  *         description: Server error
  */
 router.delete('/:id', protect, authorize('ADMIN'), deleteSection);
+
+/**
+ * @swagger
+ * /api/sections/reallocate:
+ *   patch:
+ *     summary: Move students to another section
+ *     tags: [Sections]
+ *     description: |
+ *       Moves a list of students to a target section for the current academic year. Updates both student and academic record.
+ *
+ *       **Access:** Authenticated users with role HOD only
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - studentIds
+ *               - targetSectionId
+ *             properties:
+ *               studentIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Array of student IDs to move
+ *               targetSectionId:
+ *                 type: string
+ *                 description: Target section ID
+ *     responses:
+ *       200:
+ *         description: Students moved successfully
+ *       400:
+ *         description: Invalid input (missing studentIds or invalid targetSectionId)
+ *       401:
+ *         description: Unauthorized (JWT missing or invalid)
+ *       403:
+ *         description: Access denied (requires HOD)
+ *       404:
+ *         description: Active academic year not found
+ *       500:
+ *         description: Server error
+ */
+router.patch('/reallocate', protect, authorize('HOD'), moveStudents);
 
 export default router;

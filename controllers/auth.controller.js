@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import User from '../models/User.js';
+import Faculty from '../models/Faculty.js';
 import AppError from '../utils/AppError.js';
 import { generateToken } from '../utils/generateToken.js';
 import { sendEmail } from '../utils/sendEmail.js';
@@ -74,7 +75,19 @@ export const loginUser = async (req, res, next) => {
       });
     }
 
-    const token = generateToken(user);
+    let roleForToken = user.role;
+    // If user is faculty, check if HOD
+    if (user.role === 'FACULTY') {
+      const faculty = await Faculty.findOne({ userId: user._id });
+      if (faculty && faculty.designation === 'HOD') {
+        roleForToken = 'HOD';
+      } else {
+        roleForToken = 'FACULTY';
+      }
+    }
+
+    // Generate token with possibly updated role
+    const token = generateToken({ ...user.toObject(), role: roleForToken });
 
     res.status(200).json({
       success: true,
@@ -82,7 +95,7 @@ export const loginUser = async (req, res, next) => {
       data: {
         _id: user._id,
         email: user.email,
-        role: user.role,
+        role: roleForToken,
         token
       }
     });

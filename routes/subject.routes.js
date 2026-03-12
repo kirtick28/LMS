@@ -6,7 +6,8 @@ import {
   getSubjectById,
   updateSubject,
   deleteSubject,
-  uploadMultipleSubjects
+  uploadMultipleSubjects,
+  getSubjectsForSemester
 } from '../controllers/subject.controller.js';
 import { protect, authorize } from '../middleware/auth.middleware.js';
 
@@ -271,6 +272,51 @@ router.post(
  *           type: boolean
  */
 router.get('/', protect, getAllSubjects);
+
+/**
+ * @swagger
+ * /api/subjects/by-semester:
+ *   get:
+ *     summary: Get subjects for a specific semester
+ *     tags: [Subjects]
+ *     description: |
+ *       Returns a list of subjects for a given department, regulation, and semester.
+ *
+ *       **Access:** Any authenticated user
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: departmentId
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Department ObjectId
+ *       - in: query
+ *         name: regulationId
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Regulation ObjectId
+ *       - in: query
+ *         name: semester
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Semester number (e.g., 1, 2, 3, ...)
+ *     responses:
+ *       200:
+ *         description: List of subjects for the semester
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SubjectListResponse'
+ *       400:
+ *         description: Missing or invalid parameters
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/by-semester', protect, getSubjectsForSemester);
 
 /**
  * @swagger

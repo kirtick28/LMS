@@ -110,7 +110,8 @@ export const getAllSections = async (req, res, next) => {
     const counts = await StudentAcademicRecord.aggregate([
       {
         $match: {
-          academicYearId: academicYear._id
+          academicYearId: academicYear._id,
+          status: 'active'
         }
       },
       {
@@ -135,7 +136,7 @@ export const getAllSections = async (req, res, next) => {
     return res.json({
       success: true,
       message: 'Sections retrieved successfully',
-      data: { sections: sectionsWithCount }
+      data: { count: sectionsWithCount.length, sections: sectionsWithCount }
     });
   } catch (error) {
     return next(error);

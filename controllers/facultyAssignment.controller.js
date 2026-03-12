@@ -3,7 +3,10 @@ import FacultyAssignment from '../models/FacultyAssignment.js';
 import Faculty from '../models/Faculty.js';
 import Section from '../models/Section.js';
 import Subject from '../models/Subject.js';
+import Batch from '../models/Batch.js';
+import BatchProgram from '../models/BatchProgram.js';
 import AcademicYear from '../models/AcademicYear.js';
+import StudentAcademicRecord from '../models/StudentAcademicRecord.js';
 import Curriculum from '../models/Curriculum.js';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
@@ -331,6 +334,140 @@ export const deleteFacultyAssignment = async (req, res, next) => {
       success: true,
       message: 'Faculty Assignment deleted successfully',
       data: {}
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const getAcademicStructure = async (req, res, next) => {
+  try {
+    const departmentId = req.user.departmentId;
+
+    if (!departmentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Department not found for user',
+        data: {}
+      });
+    }
+
+    const academicYear = await AcademicYear.findOne({ isActive: true });
+
+    if (!academicYear) {
+      return res.status(404).json({
+        success: false,
+        message: 'Active academic year not found',
+        data: {}
+      });
+    }
+
+    const currentYear = academicYear.startYear;
+
+    /* -----------------------------
+       Get active batches
+    ----------------------------- */
+
+    const batches = await Batch.find({
+      startYear: { $lte: currentYear },
+      endYear: { $gt: currentYear }
+    }).lean();
+
+    const batchIds = batches.map((b) => b._id);
+
+    /* -----------------------------
+       Get batchPrograms for dept
+    ----------------------------- */
+
+    const batchPrograms = await BatchProgram.find({
+      departmentId,
+      batchId: { $in: batchIds }
+    })
+      .populate({
+        path: 'batchId',
+        select: 'startYear endYear name'
+      })
+      .populate({
+        path: 'departmentId',
+        select: 'name code'
+      })
+      .populate({
+        path: 'regulationId',
+        select: 'name startYear totalSemesters'
+      })
+      .lean();
+
+    const batchProgramIds = batchPrograms.map((bp) => bp._id);
+
+    /* -----------------------------
+       Find sections of those batches
+    ----------------------------- */
+
+    const sections = await Section.find({
+      batchProgramId: { $in: batchProgramIds }
+    }).select('_id batchProgramId');
+
+    const sectionIds = sections.map((s) => s._id);
+
+    /* -----------------------------
+       Get semester from student records
+    ----------------------------- */
+
+    const semesterData = await StudentAcademicRecord.aggregate([
+      {
+        $match: {
+          academicYearId: academicYear._id,
+          sectionId: { $in: sectionIds }
+        }
+      },
+      {
+        $lookup: {
+          from: 'sections',
+          localField: 'sectionId',
+          foreignField: '_id',
+          as: 'section'
+        }
+      },
+      { $unwind: '$section' },
+      {
+        $group: {
+          _id: '$section.batchProgramId',
+          semesterNumber: { $max: '$semesterNumber' }
+        }
+      }
+    ]);
+
+    const semesterMap = {};
+
+    semesterData.forEach((item) => {
+      semesterMap[item._id.toString()] = item.semesterNumber;
+    });
+
+    /* -----------------------------
+       Build final structure
+    ----------------------------- */
+
+    const academicStructure = batchPrograms.map((bp) => {
+      const year = currentYear - bp.batchId.startYear + 1;
+
+      const semester = semesterMap[bp._id.toString()] || null;
+
+      return {
+        year,
+        semester,
+        batchProgramId: bp._id,
+        batch: bp.batchId,
+        department: bp.departmentId,
+        regulation: bp.regulationId
+      };
+    });
+
+    academicStructure.sort((a, b) => a.year - b.year);
+
+    return res.json({
+      success: true,
+      message: 'Academic structure retrieved successfully',
+      data: { academicStructure }
     });
   } catch (error) {
     return next(error);

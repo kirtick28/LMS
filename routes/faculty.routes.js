@@ -711,7 +711,7 @@ router.delete('/:id', protect, authorize('ADMIN'), deleteFaculty);
  *       500:
  *         description: Server error
  */
-router.get('/', protect, authorize('FACULTY', 'ADMIN'), getAllFaculty);
+router.get('/', protect, authorize('FACULTY', 'ADMIN', 'HOD'), getAllFaculty);
 
 /**
  * @swagger

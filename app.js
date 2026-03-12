@@ -55,7 +55,7 @@ app.use('/api/curriculums', curriculumRoutes);
 app.use('/api/subjects', subjectRoutes);
 app.use('/api/academic-years', academicYearRoutes);
 app.use('/api/batch-programs', batchProgramRoutes);
-app.use('/api/faculty-assignments', facultyAssignmentRoutes);
+app.use('/api/assign-faculty', facultyAssignmentRoutes);
 app.use('/api/student-academic-records', studentAcademicRecordRoutes);
 
 app.get('/', (req, res) => {

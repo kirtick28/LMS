@@ -2,6 +2,8 @@ import mongoose from 'mongoose';
 import Subject from '../models/Subject.js';
 import Department from '../models/Department.js';
 import Regulation from '../models/Regulation.js';
+import BatchProgram from '../models/BatchProgram.js';
+import Curriculum from '../models/Curriculum.js';
 import xlsx from 'xlsx';
 import AppError from '../utils/AppError.js';
 
@@ -388,6 +390,59 @@ export const uploadMultipleSubjects = async (req, res, next) => {
         skipped,
         failed
       }
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const getSubjectsForSemester = async (req, res, next) => {
+  try {
+    const { batchProgramId, semesterNumber } = req.query;
+
+    const batchProgram = await BatchProgram.findById(batchProgramId);
+
+    if (!batchProgram) {
+      return res.status(404).json({
+        success: false,
+        message: 'Batch program not found',
+        data: {}
+      });
+    }
+
+    const curriculum = await Curriculum.findOne({
+      departmentId: batchProgram.departmentId,
+      regulationId: batchProgram.regulationId
+    });
+
+    if (!curriculum) {
+      return res.status(404).json({
+        success: false,
+        message: 'Curriculum not found',
+        data: {}
+      });
+    }
+
+    const semester = curriculum.semesters.find(
+      (s) => s.semesterNumber === Number(semesterNumber)
+    );
+
+    if (!semester) {
+      return res.status(404).json({
+        success: false,
+        message: 'Semester subjects not found',
+        data: {}
+      });
+    }
+
+    const subjects = await Subject.find({
+      _id: { $in: semester.subjects }
+    }).sort({ name: 1 });
+
+    return res.json({
+      success: true,
+      message: 'Subjects retrieved successfully',
+      data: { subjects }
     });
   } catch (error) {
     return next(error);

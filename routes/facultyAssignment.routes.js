@@ -4,7 +4,8 @@ import {
   getAllFacultyAssignments,
   getFacultyAssignmentById,
   updateFacultyAssignment,
-  deleteFacultyAssignment
+  deleteFacultyAssignment,
+  getAcademicStructure
 } from '../controllers/facultyAssignment.controller.js';
 import { protect, authorize } from '../middleware/auth.middleware.js';
 
@@ -159,6 +160,45 @@ router.post('/', protect, authorize('ADMIN'), createFacultyAssignment);
  *         description: Unauthorized
  */
 router.get('/', protect, getAllFacultyAssignments);
+
+/**
+ * @swagger
+ * /api/faculty-assignments/academic-structure:
+ *   get:
+ *     summary: Get academic structure for faculty assignments
+ *     tags: [FacultyAssignments]
+ *     description: |
+ *       Returns the academic structure (sections, subjects, faculty assignments, etc.) for the department of the authenticated HOD.
+ *
+ *       **Access:** HOD only
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Academic structure fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   description: Academic structure details
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Access denied (not HOD)
+ */
+router.get(
+  '/academic-structure',
+  protect,
+  authorize('HOD'),
+  getAcademicStructure
+);
 
 /**
  * @swagger

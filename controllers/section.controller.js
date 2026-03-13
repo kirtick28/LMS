@@ -393,7 +393,7 @@ export const moveStudents = async (req, res, next) => {
     if (!Array.isArray(studentIds) || studentIds.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'studentIds must be a non empty array',
+        message: 'studentIds must be a non-empty array',
         data: {}
       });
     }
@@ -416,6 +416,32 @@ export const moveStudents = async (req, res, next) => {
       });
     }
 
+    const section = await Section.findById(targetSectionId);
+
+    if (!section) {
+      return res.status(404).json({
+        success: false,
+        message: 'Target section not found',
+        data: {}
+      });
+    }
+
+    const currentCount = await StudentAcademicRecord.countDocuments({
+      sectionId: targetSectionId,
+      academicYearId: academicYear._id,
+      status: 'active'
+    });
+
+    const moveCount = studentIds.length;
+
+    if (currentCount + moveCount > section.capacity) {
+      return res.status(400).json({
+        success: false,
+        message: `Section capacity exceeded. Current: ${currentCount}, Capacity: ${section.capacity}, Attempted Move: ${moveCount}`,
+        data: {}
+      });
+    }
+
     await Student.updateMany(
       { _id: { $in: studentIds } },
       { $set: { sectionId: targetSectionId } }
@@ -424,7 +450,8 @@ export const moveStudents = async (req, res, next) => {
     await StudentAcademicRecord.updateMany(
       {
         studentId: { $in: studentIds },
-        academicYearId: academicYear._id
+        academicYearId: academicYear._id,
+        status: 'active'
       },
       { $set: { sectionId: targetSectionId } }
     );

@@ -415,11 +415,15 @@ export const getSubjectsForSemester = async (req, res, next) => {
       regulationId: batchProgram.regulationId
     });
 
+    /* -----------------------------
+       If curriculum missing
+    ----------------------------- */
+
     if (!curriculum) {
-      return res.status(404).json({
-        success: false,
-        message: 'Curriculum not found',
-        data: {}
+      return res.json({
+        success: true,
+        message: 'No subjects found for this semester',
+        data: { subjects: [] }
       });
     }
 
@@ -427,11 +431,15 @@ export const getSubjectsForSemester = async (req, res, next) => {
       (s) => s.semesterNumber === Number(semesterNumber)
     );
 
-    if (!semester) {
-      return res.status(404).json({
-        success: false,
-        message: 'Semester subjects not found',
-        data: {}
+    /* -----------------------------
+       If semester missing
+    ----------------------------- */
+
+    if (!semester || semester.subjects.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No subjects found for this semester',
+        data: { subjects: [] }
       });
     }
 

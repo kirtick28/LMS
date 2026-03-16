@@ -120,7 +120,7 @@ const router = express.Router();
  *       409:
  *         description: Duplicate active assignment
  */
-router.post('/', protect, authorize('ADMIN'), createFacultyAssignment);
+router.post('/', protect, authorize('ADMIN', 'HOD'), createFacultyAssignment);
 
 /**
  * @swagger
@@ -268,7 +268,7 @@ router.get('/:id', protect, getFacultyAssignmentById);
  *       409:
  *         description: Duplicate active assignment
  */
-router.put('/:id', protect, authorize('ADMIN'), updateFacultyAssignment);
+router.put('/:id', protect, authorize('ADMIN', 'HOD'), updateFacultyAssignment);
 
 /**
  * @swagger
@@ -296,6 +296,11 @@ router.put('/:id', protect, authorize('ADMIN'), updateFacultyAssignment);
  *       404:
  *         description: Not found
  */
-router.delete('/:id', protect, authorize('ADMIN'), deleteFacultyAssignment);
+router.delete(
+  '/:id',
+  protect,
+  authorize('ADMIN', 'HOD'),
+  deleteFacultyAssignment
+);
 
 export default router;

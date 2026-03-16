@@ -1,3 +1,4 @@
+import catchAsync from '../utils/catchAsync.js';
 import mongoose from 'mongoose';
 import StudentAcademicRecord from '../models/StudentAcademicRecord.js';
 import Student from '../models/Student.js';
@@ -6,8 +7,8 @@ import Section from '../models/Section.js';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
-export const createStudentAcademicRecord = async (req, res, next) => {
-  try {
+export const createStudentAcademicRecord = catchAsync(
+  async (req, res, next) => {
     const { studentId, academicYearId, semesterNumber, sectionId, status } =
       req.body;
 
@@ -74,13 +75,11 @@ export const createStudentAcademicRecord = async (req, res, next) => {
       message: 'Student Academic Record created successfully',
       data: { record }
     });
-  } catch (error) {
-    return next(error);
   }
-};
+);
 
-export const getAllStudentAcademicRecords = async (req, res, next) => {
-  try {
+export const getAllStudentAcademicRecords = catchAsync(
+  async (req, res, next) => {
     const { studentId, academicYearId, sectionId, status } = req.query;
     const filter = {};
 
@@ -132,13 +131,11 @@ export const getAllStudentAcademicRecords = async (req, res, next) => {
       message: 'Student Academic Records retrieved successfully',
       data: { records }
     });
-  } catch (error) {
-    return next(error);
   }
-};
+);
 
-export const getStudentAcademicRecordById = async (req, res, next) => {
-  try {
+export const getStudentAcademicRecordById = catchAsync(
+  async (req, res, next) => {
     const { id } = req.params;
 
     if (!isValidObjectId(id)) {
@@ -167,13 +164,11 @@ export const getStudentAcademicRecordById = async (req, res, next) => {
       message: 'Student Academic Record retrieved successfully',
       data: { record }
     });
-  } catch (error) {
-    return next(error);
   }
-};
+);
 
-export const updateStudentAcademicRecord = async (req, res, next) => {
-  try {
+export const updateStudentAcademicRecord = catchAsync(
+  async (req, res, next) => {
     const { id } = req.params;
     const updates = { ...req.body };
 
@@ -243,13 +238,11 @@ export const updateStudentAcademicRecord = async (req, res, next) => {
       message: 'Student Academic Record updated successfully',
       data: { record }
     });
-  } catch (error) {
-    return next(error);
   }
-};
+);
 
-export const deleteStudentAcademicRecord = async (req, res, next) => {
-  try {
+export const deleteStudentAcademicRecord = catchAsync(
+  async (req, res, next) => {
     const { id } = req.params;
 
     if (!isValidObjectId(id)) {
@@ -275,7 +268,5 @@ export const deleteStudentAcademicRecord = async (req, res, next) => {
       message: 'Student Academic Record deleted successfully',
       data: {}
     });
-  } catch (error) {
-    return next(error);
   }
-};
+);

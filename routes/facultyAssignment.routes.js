@@ -3,8 +3,6 @@ import {
   createFacultyAssignment,
   getAllFacultyAssignments,
   getFacultyAssignmentById,
-  updateFacultyAssignment,
-  deleteFacultyAssignment,
   getAcademicStructure
 } from '../controllers/facultyAssignment.controller.js';
 import { protect, authorize } from '../middleware/auth.middleware.js';
@@ -229,78 +227,5 @@ router.get(
  *         description: Not found
  */
 router.get('/:id', protect, getFacultyAssignmentById);
-
-/**
- * @swagger
- * /api/faculty-assignments/{id}:
- *   put:
- *     summary: Update faculty assignment
- *     tags: [FacultyAssignments]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/FacultyAssignmentUpdateRequest'
- *     responses:
- *       200:
- *         description: Faculty assignment updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/FacultyAssignmentResponse'
- *       400:
- *         description: Invalid id or payload
- *       401:
- *         description: Unauthorized
- *       403:
- *         description: Access denied
- *       404:
- *         description: Not found
- *       409:
- *         description: Duplicate active assignment
- */
-router.put('/:id', protect, authorize('ADMIN', 'HOD'), updateFacultyAssignment);
-
-/**
- * @swagger
- * /api/faculty-assignments/{id}:
- *   delete:
- *     summary: Delete faculty assignment
- *     tags: [FacultyAssignments]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Faculty assignment deleted successfully
- *       400:
- *         description: Invalid id
- *       401:
- *         description: Unauthorized
- *       403:
- *         description: Access denied
- *       404:
- *         description: Not found
- */
-router.delete(
-  '/:id',
-  protect,
-  authorize('ADMIN', 'HOD'),
-  deleteFacultyAssignment
-);
 
 export default router;

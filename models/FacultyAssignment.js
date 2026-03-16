@@ -2,12 +2,13 @@ import mongoose from 'mongoose';
 
 const facultyAssignmentSchema = new mongoose.Schema(
   {
-    facultyId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Faculty',
-      required: true,
-      index: true
-    },
+    facultyIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Faculty',
+        required: true
+      }
+    ],
 
     sectionId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -55,7 +56,6 @@ const facultyAssignmentSchema = new mongoose.Schema(
 
 facultyAssignmentSchema.index(
   {
-    facultyId: 1,
     subjectComponentId: 1,
     sectionId: 1,
     academicYearId: 1,

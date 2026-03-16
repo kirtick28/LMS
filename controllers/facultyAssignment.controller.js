@@ -3,134 +3,183 @@ import FacultyAssignment from '../models/FacultyAssignment.js';
 import Faculty from '../models/Faculty.js';
 import Section from '../models/Section.js';
 import Subject from '../models/Subject.js';
+import SubjectComponent from '../models/SubjectComponent.js';
 import Batch from '../models/Batch.js';
 import BatchProgram from '../models/BatchProgram.js';
 import AcademicYear from '../models/AcademicYear.js';
 import StudentAcademicRecord from '../models/StudentAcademicRecord.js';
 import Curriculum from '../models/Curriculum.js';
 import catchAsync from '../utils/catchAsync.js';
+import AppError from '../utils/AppError.js';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 export const createFacultyAssignment = catchAsync(async (req, res, next) => {
-  const {
-    facultyId,
-    sectionId,
-    subjectComponentId,
-    academicYearId,
-    semesterNumber
-  } = req.body;
+  const { allocations, sectionId, academicYearId, semesterNumber } = req.body;
 
   if (
-    !facultyId ||
+    !allocations ||
+    !Array.isArray(allocations) ||
     !sectionId ||
-    !subjectComponentId ||
     !academicYearId ||
     !semesterNumber
   ) {
     return next(
       new AppError(
-        'facultyId, sectionId, subjectComponentId, academicYearId, and semesterNumber are required',
+        'allocations[], sectionId, academicYearId, and semesterNumber are required',
         400
       )
     );
   }
 
-  if (
-    !isValidObjectId(facultyId) ||
-    !isValidObjectId(sectionId) ||
-    !isValidObjectId(subjectComponentId) ||
-    !isValidObjectId(academicYearId)
-  ) {
+  if (!isValidObjectId(sectionId) || !isValidObjectId(academicYearId)) {
     return next(new AppError('Invalid ObjectId provided', 400));
   }
 
-  const [faculty, section, component, academicYear] = await Promise.all([
-    Faculty.findById(facultyId),
+  const [section, academicYear] = await Promise.all([
     Section.findById(sectionId).populate('batchProgramId'),
-    SubjectComponent.findById(subjectComponentId).populate('subjectId'),
     AcademicYear.findById(academicYearId)
   ]);
 
-  if (!faculty || !section || !component || !academicYear) {
+  if (!section || !academicYear) {
     return next(
-      new AppError(
-        'Referenced Faculty, Section, SubjectComponent, or AcademicYear not found',
-        404
-      )
+      new AppError('Referenced Section or AcademicYear not found', 404)
     );
   }
-
-  const subject = component.subjectId;
 
   const batchProgram = section.batchProgramId;
-
-  if (!batchProgram) {
-    return next(
-      new AppError('Section is not properly mapped to a BatchProgram', 400)
-    );
-  }
 
   const curriculum = await Curriculum.findOne({
     departmentId: batchProgram.departmentId,
     regulationId: batchProgram.regulationId,
-    'semesters.semesterNumber': semesterNumber,
-    'semesters.subjects': subject._id
+    'semesters.semesterNumber': semesterNumber
   });
 
   if (!curriculum) {
     return next(
       new AppError(
-        'This subject is not part of the curriculum for this department, regulation, and semester',
+        'Curriculum not found for this department, regulation, and semester',
         400
       )
     );
   }
 
-  const existing = await FacultyAssignment.findOne({
-    sectionId,
-    subjectComponentId,
-    academicYearId,
-    semesterNumber,
-    status: 'active'
+  const semester = curriculum.semesters.find(
+    (s) => s.semesterNumber === Number(semesterNumber)
+  );
+
+  const subjectComponentIds = allocations.map((a) => a.subjectComponentId);
+
+  const subjectComponents = await SubjectComponent.find({
+    _id: { $in: subjectComponentIds }
+  }).populate('subjectId');
+
+  const componentMap = new Map();
+  subjectComponents.forEach((c) => componentMap.set(c._id.toString(), c));
+
+  const allFacultyIds = allocations.flatMap((a) => a.facultyIds || []);
+  const uniqueFacultyIds = [...new Set(allFacultyIds)];
+
+  const faculties = await Faculty.find({
+    _id: { $in: uniqueFacultyIds }
   });
 
-  if (existing) {
-    return next(
-      new AppError(
-        'A faculty member is already assigned to this subject component for this section in this academic year',
-        409
-      )
-    );
+  if (faculties.length !== uniqueFacultyIds.length) {
+    return next(new AppError('One or more faculties not found', 404));
   }
 
-  const assignment = await FacultyAssignment.create({
-    facultyId,
+  const existingAssignments = await FacultyAssignment.find({
     sectionId,
-    subjectComponentId,
     academicYearId,
     semesterNumber,
-    assignedBy: req.user?._id || null,
-    status: 'active'
+    subjectComponentId: { $in: subjectComponentIds }
+  });
+
+  const existingMap = new Map();
+  existingAssignments.forEach((a) =>
+    existingMap.set(a.subjectComponentId.toString(), a)
+  );
+
+  const bulkOps = [];
+
+  for (const allocation of allocations) {
+    const { subjectComponentId, facultyIds = [] } = allocation;
+
+    const component = componentMap.get(subjectComponentId);
+
+    if (!component) {
+      return next(new AppError('SubjectComponent not found', 404));
+    }
+
+    const subject = component.subjectId;
+
+    if (
+      !semester.subjects.some((id) => id.toString() === subject._id.toString())
+    ) {
+      return next(
+        new AppError(
+          `Subject ${subject.name} is not part of this semester curriculum`,
+          400
+        )
+      );
+    }
+
+    const existing = existingMap.get(subjectComponentId);
+
+    if (existing) {
+      if (facultyIds.length === 0) {
+        bulkOps.push({
+          deleteOne: { filter: { _id: existing._id } }
+        });
+      } else {
+        bulkOps.push({
+          updateOne: {
+            filter: { _id: existing._id },
+            update: { facultyIds }
+          }
+        });
+      }
+    } else {
+      if (facultyIds.length === 0) continue;
+
+      bulkOps.push({
+        insertOne: {
+          document: {
+            facultyIds,
+            sectionId,
+            subjectComponentId,
+            academicYearId,
+            semesterNumber,
+            assignedBy: req.user?._id || null,
+            status: 'active'
+          }
+        }
+      });
+    }
+  }
+
+  if (bulkOps.length) {
+    await FacultyAssignment.bulkWrite(bulkOps);
+  }
+
+  const assignments = await FacultyAssignment.find({
+    sectionId,
+    academicYearId,
+    semesterNumber
   });
 
   res.status(201).json({
     success: true,
-    message: 'Faculty Assignment created successfully',
-    data: { assignment }
+    message: 'Faculty assignments processed successfully',
+    data: { assignments }
   });
 });
 
 export const getAllFacultyAssignments = catchAsync(async (req, res, next) => {
-  const { facultyId, sectionId, academicYearId, status } = req.query;
+  const { facultyId, sectionId, academicYearId, semesterNumber, status } =
+    req.query;
 
   const filter = {};
-
-  if (facultyId) {
-    if (!isValidObjectId(facultyId))
-      return next(new AppError('Invalid facultyId', 400));
-    filter.facultyId = facultyId;
-  }
 
   if (sectionId) {
     if (!isValidObjectId(sectionId))
@@ -144,12 +193,23 @@ export const getAllFacultyAssignments = catchAsync(async (req, res, next) => {
     filter.academicYearId = academicYearId;
   }
 
+  if (semesterNumber) {
+    filter.semesterNumber = Number(semesterNumber);
+  }
+
   if (status) {
     filter.status = status;
   }
 
+  if (facultyId) {
+    if (!isValidObjectId(facultyId))
+      return next(new AppError('Invalid facultyId', 400));
+
+    filter.facultyIds = { $in: [facultyId] };
+  }
+
   const assignments = await FacultyAssignment.find(filter)
-    .populate('facultyId', 'firstName lastName employeeId')
+    .populate('facultyIds', 'firstName lastName employeeId')
     .populate('sectionId', 'name')
     .populate({
       path: 'subjectComponentId',
@@ -159,9 +219,10 @@ export const getAllFacultyAssignments = catchAsync(async (req, res, next) => {
       }
     })
     .populate('academicYearId', 'name')
-    .sort({ createdAt: -1 });
+    .sort({ createdAt: -1 })
+    .lean();
 
-  res.json({
+  res.status(200).json({
     success: true,
     message: 'Faculty Assignments retrieved successfully',
     data: { assignments }
@@ -195,108 +256,6 @@ export const getFacultyAssignmentById = catchAsync(async (req, res, next) => {
     success: true,
     message: 'Faculty Assignment retrieved successfully',
     data: { assignment }
-  });
-});
-
-export const updateFacultyAssignment = catchAsync(async (req, res, next) => {
-  const { id } = req.params;
-  const updates = { ...req.body };
-
-  if (!isValidObjectId(id)) {
-    return next(new AppError('Invalid assignment id', 400));
-  }
-
-  const current = await FacultyAssignment.findById(id);
-
-  if (!current) {
-    return next(new AppError('Faculty Assignment not found', 404));
-  }
-
-  const objectIdFields = [
-    'facultyId',
-    'sectionId',
-    'subjectComponentId',
-    'academicYearId'
-  ];
-
-  for (const field of objectIdFields) {
-    if (updates[field] && !isValidObjectId(updates[field])) {
-      return next(new AppError(`Invalid ${field}`, 400));
-    }
-  }
-
-  if (
-    updates.sectionId ||
-    updates.subjectComponentId ||
-    updates.academicYearId ||
-    updates.semesterNumber
-  ) {
-    const targetSectionId = updates.sectionId || current.sectionId;
-    const targetSubjectComponentId =
-      updates.subjectComponentId || current.subjectComponentId;
-    const targetAcademicYearId =
-      updates.academicYearId || current.academicYearId;
-    const targetSemesterNumber =
-      updates.semesterNumber || current.semesterNumber;
-
-    const duplicate = await FacultyAssignment.findOne({
-      _id: { $ne: id },
-      sectionId: targetSectionId,
-      subjectComponentId: targetSubjectComponentId,
-      academicYearId: targetAcademicYearId,
-      semesterNumber: targetSemesterNumber,
-      status: 'active'
-    });
-
-    if (duplicate) {
-      return next(
-        new AppError(
-          'A faculty member is already assigned to this subject component for this section in this academic year',
-          409
-        )
-      );
-    }
-  }
-
-  const assignment = await FacultyAssignment.findByIdAndUpdate(id, updates, {
-    new: true,
-    runValidators: true
-  })
-    .populate('facultyId', 'firstName lastName employeeId')
-    .populate('sectionId', 'name')
-    .populate({
-      path: 'subjectComponentId',
-      populate: {
-        path: 'subjectId',
-        select: 'name code shortName deliveryType'
-      }
-    })
-    .populate('academicYearId', 'name');
-
-  res.json({
-    success: true,
-    message: 'Faculty Assignment updated successfully',
-    data: { assignment }
-  });
-});
-
-export const deleteFacultyAssignment = catchAsync(async (req, res, next) => {
-  const { id } = req.params;
-
-  if (!isValidObjectId(id)) {
-    return next(new AppError('Invalid assignment id', 400));
-  }
-
-  const assignment = await FacultyAssignment.findByIdAndDelete(id);
-
-  if (!assignment) {
-    return next(new AppError('Faculty Assignment not found', 404));
-  }
-
-  res.json({
-    success: true,
-    message: 'Faculty Assignment deleted successfully',
-    data: {}
   });
 });
 
@@ -378,6 +337,8 @@ export const getAcademicStructure = catchAsync(async (req, res, next) => {
     semesterMap[item._id.toString()] = item.semesterNumber;
   });
 
+  const currentAcademicYear = await AcademicYear.findOne({ isActive: true });
+
   const academicStructure = batchPrograms.map((bp) => {
     const year = currentYear - bp.batchId.startYear + 1;
     const semester = semesterMap[bp._id.toString()] || null;
@@ -386,6 +347,7 @@ export const getAcademicStructure = catchAsync(async (req, res, next) => {
       year,
       semester,
       batchProgramId: bp._id,
+      academicYearId: currentAcademicYear._id,
       batch: bp.batchId,
       department: bp.departmentId,
       regulation: bp.regulationId

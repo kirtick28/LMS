@@ -460,7 +460,14 @@ export const getSubjectsForSemester = catchAsync(async (req, res, next) => {
 
   const subjects = await Subject.find({
     _id: { $in: semester.subjects }
-  });
+  })
+    .populate('departmentId', 'name code program')
+    .populate('regulationId', 'name startYear')
+    .populate({
+      path: 'components',
+      select: 'name shortName componentType hours isActive'
+    })
+    .sort({ code: 1 });
 
   return res.json({
     success: true,

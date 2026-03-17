@@ -13,7 +13,7 @@ router.get('/', protect, getAllFacultyAssignments);
 router.get(
   '/academic-structure',
   protect,
-  authorize('HOD'),
+  authorize('HOD', 'ADMIN'),
   getAcademicStructure
 );
 router.get('/:id', protect, getFacultyAssignmentById);

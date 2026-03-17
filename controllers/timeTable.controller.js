@@ -4,7 +4,7 @@ import AdditionalHour from '../models/AdditionalHour.js';
 import FacultyAssignment from '../models/FacultyAssignment.js';
 
 import catchAsync from '../utils/catchAsync.js';
-import AppError from '../utils/appError.js';
+import AppError from '../utils/AppError.js';
 
 export const getTimetableFull = catchAsync(async (req, res, next) => {
   const { sectionId, academicYearId, semesterNumber } = req.query;

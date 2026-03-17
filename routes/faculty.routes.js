@@ -18,9 +18,7 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
 router.post('/', protect, authorize('ADMIN'), addFaculty);
-
 router.get('/me', protect, authorize('FACULTY', 'ADMIN', 'HOD'), getMyInfo);
-
 router.post(
   '/upload',
   protect,
@@ -28,7 +26,6 @@ router.post(
   upload.single('file'),
   uploadMultipleFaculty
 );
-
 router.put(
   '/:id',
   protect,
@@ -40,32 +37,26 @@ router.put(
   ]),
   updateFaculty
 );
-
 router.delete('/:id', protect, authorize('ADMIN'), deleteFaculty);
-
 router.get('/', protect, authorize('FACULTY', 'ADMIN', 'HOD'), getAllFaculty);
-
 router.get(
   '/department-wise',
   protect,
   authorize('FACULTY', 'ADMIN'),
   getDepartmentWise
 );
-
 router.get(
   '/department-wise/:department',
   protect,
   authorize('FACULTY', 'ADMIN'),
   getDepartmentWiseFaculty
 );
-
 router.get(
   '/department-wise/:department/list',
   protect,
   authorize('FACULTY', 'ADMIN'),
   getDepartmentWiseFacultyList
 );
-
 router.get(
   '/dashboard/stats',
   protect,

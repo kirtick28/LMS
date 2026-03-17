@@ -10,11 +10,8 @@ import { protect, authorize } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
-router
-  .route('/')
-  .post(protect, authorize('HOD'), saveTimetableFull)
-  .get(protect, authorize('HOD'), getTimetableFull);
-
-router.route('/components').get(protect, authorize('HOD'), getComponents);
+router.post('/', protect, authorize('HOD'), saveTimetableFull);
+router.get('/', protect, authorize('HOD'), getTimetableFull);
+router.get('/components', protect, authorize('HOD'), getComponents);
 
 export default router;

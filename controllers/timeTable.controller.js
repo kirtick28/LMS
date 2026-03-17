@@ -62,7 +62,11 @@ export const getTimetableFull = catchAsync(async (req, res, next) => {
     .populate({
       path: 'facultyIds',
       select:
-        '_id userId departmentId salutation firstName lastName designation qualification'
+        '_id userId departmentId salutation firstName lastName designation qualification',
+      populate: {
+        path: 'departmentId',
+        select: 'name code'
+      }
     });
 
   const additionalHours = await AdditionalHour.find({

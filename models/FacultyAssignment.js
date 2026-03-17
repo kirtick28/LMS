@@ -39,6 +39,8 @@ const facultyAssignmentSchema = new mongoose.Schema(
       index: true
     },
 
+    venue: { type: String, default: '' },
+
     assignedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'

@@ -337,8 +337,6 @@ export const getAcademicStructure = catchAsync(async (req, res, next) => {
     semesterMap[item._id.toString()] = item.semesterNumber;
   });
 
-  const currentAcademicYear = await AcademicYear.findOne({ isActive: true });
-
   const academicStructure = batchPrograms.map((bp) => {
     const year = currentYear - bp.batchId.startYear + 1;
     const semester = semesterMap[bp._id.toString()] || null;
@@ -347,7 +345,7 @@ export const getAcademicStructure = catchAsync(async (req, res, next) => {
       year,
       semester,
       batchProgramId: bp._id,
-      academicYearId: currentAcademicYear._id,
+      academicYearId: academicYear._id,
       batch: bp.batchId,
       department: bp.departmentId,
       regulation: bp.regulationId

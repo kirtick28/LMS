@@ -155,52 +155,6 @@ router.post('/', protect, authorize('ADMIN'), createSubject);
 
 /**
  * @swagger
- * /api/subjects/upload:
- *   post:
- *     summary: Bulk upload subjects from Excel
- *     tags: [Subjects]
- *     description: |
- *       Upload `.xlsx` file.
- *
- *       Required Excel columns:
- *
- *       name | code | credits | courseType | startYear
- *
- *       `startYear` maps the subject to a Regulation.
- *
- *       `departmentId` must be provided in body or URL.
- *
- *       **Access:** ADMIN only
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             required:
- *               - file
- *             properties:
- *               file:
- *                 type: string
- *                 format: binary
- *               departmentId:
- *                 type: string
- *     responses:
- *       200:
- *         description: Upload completed
- */
-router.post(
-  '/upload',
-  protect,
-  authorize('ADMIN'),
-  upload.single('file'),
-  uploadMultipleSubjects
-);
-
-/**
- * @swagger
  * /api/subjects/upload/{departmentId}:
  *   post:
  *     summary: Bulk upload subjects using department path param
@@ -228,7 +182,7 @@ router.post(
  *         description: Upload completed
  */
 router.post(
-  '/upload/:departmentId',
+  '/upload/:departmentId/:regulationId',
   protect,
   authorize('ADMIN'),
   upload.single('file'),

@@ -82,7 +82,7 @@ const createSubjectComponents = async (
       components.push({
         subjectId: subject._id,
         name: `${baseName} Laboratory`,
-        shortName: `${short} LAB`,
+        shortName: `${short}`,
         componentType: 'PRACTICAL',
         hours: practicalHours || 0
       });
@@ -92,7 +92,7 @@ const createSubjectComponents = async (
       components.push({
         subjectId: subject._id,
         name: `${baseName} Project`,
-        shortName: `${short} PROJ`,
+        shortName: `${short}`,
         componentType: 'PROJECT',
         hours: projectHours || 0
       });
@@ -253,94 +253,135 @@ export const getSubjectById = catchAsync(async (req, res, next) => {
 
 export const uploadMultipleSubjects = catchAsync(async (req, res, next) => {
   if (!req.file) {
-    return res.status(400).json({
-      success: false,
-      message: 'No file uploaded',
-      data: {}
-    });
+    return next(new AppError('Excel file is required', 400));
   }
 
-  const departmentId = req.params.departmentId || req.body.departmentId;
+  const { departmentId, regulationId } = req.params;
 
-  if (!departmentId || !isValidObjectId(departmentId)) {
-    return res.status(400).json({
-      success: false,
-      message: 'Valid departmentId required',
-      data: {}
-    });
+  if (!isValidObjectId(departmentId) || !isValidObjectId(regulationId)) {
+    return next(new AppError('Invalid departmentId or regulationId', 400));
   }
 
   const department = await Department.findById(departmentId);
+  if (!department) return next(new AppError('Department not found', 404));
 
-  if (!department) {
-    return res.status(400).json({
-      success: false,
-      message: 'Department not found',
-      data: {}
-    });
-  }
+  const regulation = await Regulation.findById(regulationId);
+  if (!regulation) return next(new AppError('Regulation not found', 404));
 
-  const workbook = req.file.buffer
-    ? xlsx.read(req.file.buffer, { type: 'buffer' })
-    : xlsx.readFile(req.file.path);
-
+  const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows = xlsx.utils.sheet_to_json(sheet);
 
-  let inserted = 0;
-  let skipped = 0;
-  let failed = 0;
+  if (!rows.length) {
+    return next(new AppError('Excel file is empty', 400));
+  }
 
-  // Start MongoDB session for transaction
+  const errors = [];
+  const validatedRows = [];
+
+  const allowedDeliveryTypes = ['T', 'P', 'TP', 'TPJ', 'PJ', 'I'];
+
+  const allowedCategories = [
+    'Foundation',
+    'Basic Science',
+    'Engineering Science',
+    'Professional Core',
+    'Professional Elective',
+    'Open Elective',
+    'Mandatory',
+    'Skill Enhancement',
+    'Value Added',
+    'Project',
+    'Internship'
+  ];
+
+  const seen = new Set();
+
+  for (let i = 0; i < rows.length; i++) {
+    const rowNumber = i + 2;
+    const row = rows[i];
+
+    const name = row.name?.trim();
+    const shortName = row.shortName?.toUpperCase().trim();
+    const code = row.code?.toUpperCase().trim();
+    const credits = Number(row.credits ?? 0);
+    const deliveryType = row.deliveryType;
+    const courseCategory = row.courseCategory;
+    const lectureHours = Number(row.lectureHours ?? 0);
+    const practicalHours = Number(row.practicalHours ?? 0);
+    const projectHours = Number(row.projectHours ?? 0);
+
+    if (!name || !shortName || !code) {
+      errors.push({
+        row: rowNumber,
+        error: 'name, shortName and code are required'
+      });
+      continue;
+    }
+
+    if (!deliveryType || !allowedDeliveryTypes.includes(deliveryType)) {
+      errors.push({
+        row: rowNumber,
+        error: `Invalid deliveryType. Allowed: ${allowedDeliveryTypes.join(', ')}`
+      });
+      continue;
+    }
+
+    if (!courseCategory || !allowedCategories.includes(courseCategory)) {
+      errors.push({
+        row: rowNumber,
+        error: 'Invalid courseCategory'
+      });
+      continue;
+    }
+
+    const key = `${code}`;
+
+    if (seen.has(key)) {
+      errors.push({
+        row: rowNumber,
+        error: 'Duplicate subject code inside Excel'
+      });
+      continue;
+    }
+
+    seen.add(key);
+
+    validatedRows.push({
+      name,
+      shortName,
+      code,
+      credits,
+      deliveryType,
+      courseCategory,
+      lectureHours,
+      practicalHours,
+      projectHours
+    });
+  }
+
+  if (errors.length) {
+    return res.status(400).json({
+      success: false,
+      message: 'Excel validation failed',
+      errors
+    });
+  }
+
   const session = await mongoose.startSession();
   session.startTransaction();
+
   try {
-    for (const row of rows) {
-      const name = row.name || row.Name;
-      const shortName = row.shortName || row.ShortName;
-      const code = row.code || row.Code;
-      const credits = row.credits ?? row.Credits;
-      const deliveryType =
-        row.deliveryType || row.DeliveryType || row.courseType;
-      const courseCategory = row.courseCategory || row.CourseCategory;
-      const lectureHours = row.lectureHours ?? row.LectureHours ?? 0;
-      const practicalHours = row.practicalHours ?? row.PracticalHours ?? 0;
-      const projectHours = row.projectHours ?? row.ProjectHours ?? 0;
-      const regulationYear = row.startYear || row.RegulationYear;
-
-      if (!name || !shortName || !code || !deliveryType || !regulationYear) {
-        failed++;
-        // Abort transaction and throw error to ensure atomicity
-        throw new AppError(
-          'Missing required fields in one or more rows. Aborting upload.',
-          400
-        );
-      }
-
-      const regulation = await Regulation.findOne({
-        startYear: regulationYear
-      }).session(session);
-      if (!regulation) {
-        failed++;
-        throw new AppError(
-          'Regulation not found for one or more rows. Aborting upload.',
-          400
-        );
-      }
-
-      const normalizedName = String(name).trim();
-      const normalizedCode = String(code).toUpperCase().trim();
-
+    for (const row of validatedRows) {
       const duplicate = await Subject.findOne({
         departmentId,
-        regulationId: regulation._id,
-        $or: [{ code: normalizedCode }, { name: normalizedName }]
+        regulationId,
+        $or: [{ code: row.code }, { name: row.name }]
       }).session(session);
 
       if (duplicate) {
-        skipped++;
         throw new AppError(
-          'Duplicate subject found in one or more rows. Aborting upload.',
+          `Duplicate subject found: ${row.name} (${row.code})`,
           409
         );
       }
@@ -348,14 +389,14 @@ export const uploadMultipleSubjects = catchAsync(async (req, res, next) => {
       const subject = await Subject.create(
         [
           {
-            name: normalizedName,
-            shortName: String(shortName).toUpperCase().trim(),
-            code: normalizedCode,
-            credits,
-            deliveryType,
-            courseCategory,
+            name: row.name,
+            shortName: row.shortName,
+            code: row.code,
+            credits: row.credits,
+            deliveryType: row.deliveryType,
+            courseCategory: row.courseCategory,
             departmentId,
-            regulationId: regulation._id
+            regulationId
           }
         ],
         { session }
@@ -363,28 +404,23 @@ export const uploadMultipleSubjects = catchAsync(async (req, res, next) => {
 
       await createSubjectComponents(
         subject[0],
-        lectureHours,
-        practicalHours,
-        projectHours
+        row.lectureHours,
+        row.practicalHours,
+        row.projectHours
       );
-
-      inserted++;
     }
+
     await session.commitTransaction();
     session.endSession();
-    return res.json({
+
+    res.status(201).json({
       success: true,
-      message: 'Upload completed',
-      data: {
-        inserted,
-        skipped,
-        failed
-      }
+      message: `${validatedRows.length} subjects uploaded successfully`
     });
-  } catch (error) {
+  } catch (err) {
     await session.abortTransaction();
     session.endSession();
-    return next(error);
+    return next(err);
   }
 });
 

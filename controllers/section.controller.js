@@ -19,7 +19,8 @@ const populateConfig = {
 
 export const createSection = async (req, res, next) => {
   try {
-    const { name, batchProgramId, capacity, isActive } = req.body;
+    const { name, batchProgramId, capacity, isActive, advisor, tutors, venue } =
+      req.body;
 
     if (!name || !batchProgramId) {
       return res.status(400).json({
@@ -66,7 +67,10 @@ export const createSection = async (req, res, next) => {
       name: normalizedName,
       batchProgramId,
       capacity,
-      isActive
+      isActive: isActive || true,
+      advisor,
+      tutors,
+      venue
     });
 
     return res.status(201).json({
@@ -188,7 +192,6 @@ export const updateSection = async (req, res, next) => {
   try {
     const { id } = req.params;
     const updates = { ...req.body };
-
     if (!isValidObjectId(id)) {
       return res.status(400).json({
         success: false,
@@ -207,6 +210,9 @@ export const updateSection = async (req, res, next) => {
 
     if (updates.name) {
       updates.name = String(updates.name).trim().toUpperCase();
+    }
+    if (updates.venue) {
+      updates.venue = String(updates.venue).trim().toUpperCase();
     }
 
     const current = await Section.findById(id);
@@ -251,7 +257,7 @@ export const updateSection = async (req, res, next) => {
     }
 
     const section = await Section.findByIdAndUpdate(id, updates, {
-      new: true,
+      returnDocument: 'after',
       runValidators: true
     }).populate(populateConfig);
 

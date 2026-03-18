@@ -14,6 +14,24 @@ const sectionSchema = new mongoose.Schema(
       required: true,
       index: true
     },
+    advisor: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Faculty',
+      default: null,
+      index: true
+    },
+    tutors: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Faculty'
+      }
+    ],
+    venue: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: null
+    },
     capacity: {
       type: Number,
       default: 60,
@@ -34,6 +52,9 @@ sectionSchema.index({ batchProgramId: 1, isActive: 1 });
 sectionSchema.pre('validate', function () {
   if (this.name) {
     this.name = String(this.name).trim().toUpperCase();
+  }
+  if (this.venue) {
+    this.venue = String(this.venue).trim().toUpperCase();
   }
 });
 

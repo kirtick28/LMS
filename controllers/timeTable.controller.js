@@ -125,6 +125,7 @@ export const saveTimetableFull = catchAsync(async (req, res, next) => {
     await timetable.save();
   }
 
+  // 🔥 SLOT SHIFT LOGIC
   const classSlotOrders = slots
     .filter((s) => s.type === 'class')
     .map((s) => s.order);
@@ -134,8 +135,7 @@ export const saveTimetableFull = catchAsync(async (req, res, next) => {
 
   for (const slot of slots) {
     if (slot.type === 'class') {
-      slotShiftMap[slot.order] = classSlotOrders[classIndex];
-      classIndex++;
+      slotShiftMap[slot.order] = classSlotOrders[classIndex++];
     } else {
       slotShiftMap[slot.order] = null;
     }
@@ -143,7 +143,9 @@ export const saveTimetableFull = catchAsync(async (req, res, next) => {
 
   await TimetableEntry.deleteMany({ timetableId: timetable._id });
 
-  // Ensure tempId is set for new additionalHours
+  // 🔥 HANDLE ADDITIONAL HOURS (ONLY ONCE)
+  let additionalHourIdMap = {};
+
   if (additionalHours && additionalHours.length > 0) {
     additionalHours.forEach((hour) => {
       if (
@@ -155,6 +157,7 @@ export const saveTimetableFull = catchAsync(async (req, res, next) => {
         hour.tempId = hour.additionalHourId;
       }
     });
+
     const bulkOps = additionalHours.map((hour) => {
       const data = {
         name: hour.name,
@@ -166,7 +169,9 @@ export const saveTimetableFull = catchAsync(async (req, res, next) => {
         academicYearId,
         semesterNumber
       };
+
       if (hour.tempId) data.tempId = hour.tempId;
+
       if (hour._id) {
         return {
           updateOne: {
@@ -175,40 +180,45 @@ export const saveTimetableFull = catchAsync(async (req, res, next) => {
           }
         };
       }
+
       return {
         insertOne: {
           document: data
         }
       };
     });
-    await AdditionalHour.bulkWrite(bulkOps);
-  }
 
-  // Map temp additionalHourId to real ObjectId
-  let additionalHourIdMap = {};
-  if (additionalHours && additionalHours.length > 0) {
+    await AdditionalHour.bulkWrite(bulkOps);
+
+    // 🔥 MAP temp → real IDs
     const tempHours = additionalHours.filter(
       (h) => h._id === undefined && h.tempId
     );
+
     const allAdditionalHours = await AdditionalHour.find({
       sectionId,
       academicYearId,
       semesterNumber
     });
+
     tempHours.forEach((tempHour) => {
       const match = allAdditionalHours.find(
         (h) => h.tempId === tempHour.tempId
       );
-      if (match) additionalHourIdMap[tempHour.tempId] = match._id;
+      if (match) {
+        additionalHourIdMap[tempHour.tempId] = match._id;
+      }
     });
   }
 
+  // 🔥 CREATE ENTRIES
   const entryDocs = entries
     .map((e) => {
       const newSlot = slotShiftMap[e.slotOrder];
       if (!newSlot) return null;
 
       let additionalHourId = e.additionalHourId;
+
       if (
         additionalHourId &&
         typeof additionalHourId === 'string' &&
@@ -228,6 +238,8 @@ export const saveTimetableFull = catchAsync(async (req, res, next) => {
     .filter(Boolean);
 
   const createdEntries = await TimetableEntry.insertMany(entryDocs);
+
+  // 🔥 UPDATE FACULTY ASSIGNMENTS
   if (facultyAssignments && facultyAssignments.length > 0) {
     const bulkUpdates = facultyAssignments.map((fa) => ({
       updateOne: {
@@ -237,38 +249,6 @@ export const saveTimetableFull = catchAsync(async (req, res, next) => {
     }));
 
     await FacultyAssignment.bulkWrite(bulkUpdates);
-  }
-
-  if (additionalHours && additionalHours.length > 0) {
-    const bulkOps = additionalHours.map((hour) => {
-      const data = {
-        name: hour.name,
-        shortName: hour.shortName,
-        facultyIds: hour.facultyIds || [],
-        venue: hour.venue || '',
-        hours: hour.hours || 1,
-        sectionId,
-        academicYearId,
-        semesterNumber
-      };
-
-      if (hour._id) {
-        return {
-          updateOne: {
-            filter: { _id: hour._id },
-            update: data
-          }
-        };
-      }
-
-      return {
-        insertOne: {
-          document: data
-        }
-      };
-    });
-
-    await AdditionalHour.bulkWrite(bulkOps);
   }
 
   res.status(200).json({

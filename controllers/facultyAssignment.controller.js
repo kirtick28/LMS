@@ -259,6 +259,7 @@ export const getFacultyAssignmentById = catchAsync(async (req, res, next) => {
   });
 });
 
+// to update
 export const getAcademicStructure = catchAsync(async (req, res, next) => {
   const departmentId = req.user.departmentId;
 

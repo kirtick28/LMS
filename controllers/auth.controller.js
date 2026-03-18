@@ -76,11 +76,14 @@ export const loginUser = async (req, res, next) => {
     }
 
     let roleForToken = user.role;
-    // If user is faculty, check if HOD
+    let hodDepartmentId = undefined;
+
     if (user.role === 'FACULTY') {
       const faculty = await Faculty.findOne({ userId: user._id });
       if (faculty && faculty.designation === 'HOD') {
         roleForToken = 'HOD';
+        hodDepartmentId = faculty.departmentId;
+        console;
       } else {
         roleForToken = 'FACULTY';
       }
@@ -96,6 +99,7 @@ export const loginUser = async (req, res, next) => {
         _id: user._id,
         email: user.email,
         role: roleForToken,
+        departmentId: hodDepartmentId,
         token
       }
     });

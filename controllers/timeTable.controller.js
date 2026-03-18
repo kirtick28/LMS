@@ -35,7 +35,11 @@ export const getTimetableFull = catchAsync(async (req, res, next) => {
           {
             path: 'facultyIds',
             select:
-              '_id userId departmentId salutation firstName lastName designation qualification deptCode'
+              '_id userId departmentId salutation firstName lastName designation qualification deptCode',
+            populate: {
+              path: 'departmentId',
+              select: 'name code'
+            }
           }
         ]
       })
@@ -44,7 +48,11 @@ export const getTimetableFull = catchAsync(async (req, res, next) => {
         populate: {
           path: 'facultyIds',
           select:
-            '_id userId departmentId salutation firstName lastName designation qualification deptCode'
+            '_id userId departmentId salutation firstName lastName designation qualification deptCode',
+          populate: {
+            path: 'departmentId',
+            select: 'name code'
+          }
         }
       });
   }
@@ -76,7 +84,11 @@ export const getTimetableFull = catchAsync(async (req, res, next) => {
   }).populate({
     path: 'facultyIds',
     select:
-      '_id userId departmentId salutation firstName lastName designation qualification'
+      '_id userId departmentId salutation firstName lastName designation qualification',
+    populate: {
+      path: 'departmentId',
+      select: 'name code'
+    }
   });
 
   res.status(200).json({

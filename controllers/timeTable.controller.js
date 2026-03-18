@@ -35,7 +35,7 @@ export const getTimetableFull = catchAsync(async (req, res, next) => {
           {
             path: 'facultyIds',
             select:
-              '_id userId departmentId salutation firstName lastName designation qualification code'
+              '_id userId departmentId salutation firstName lastName designation qualification deptCode'
           }
         ]
       })
@@ -44,7 +44,7 @@ export const getTimetableFull = catchAsync(async (req, res, next) => {
         populate: {
           path: 'facultyIds',
           select:
-            '_id userId departmentId salutation firstName lastName designation qualification code'
+            '_id userId departmentId salutation firstName lastName designation qualification deptCode'
         }
       });
   }

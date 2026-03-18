@@ -306,7 +306,7 @@ export const deleteSection = async (req, res, next) => {
 // to update
 export const getCurrentYearsSections = async (req, res, next) => {
   try {
-    const departmentId = req.user.departmentId;
+    const { departmentId } = req.params;
 
     const academicYear = await AcademicYear.findOne({ isActive: true });
 

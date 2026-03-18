@@ -11,7 +11,7 @@ const router = express.Router();
 router.post('/', protect, authorize('ADMIN', 'HOD'), createFacultyAssignment);
 router.get('/', protect, getAllFacultyAssignments);
 router.get(
-  '/academic-structure',
+  '/academic-structure/:departmentId',
   protect,
   authorize('HOD', 'ADMIN'),
   getAcademicStructure

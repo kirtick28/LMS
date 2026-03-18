@@ -38,7 +38,6 @@ export const protect = async (req, res, next) => {
           data: {}
         });
       }
-      req.user.departmentId = faculty.departmentId;
       req.user.role = 'HOD';
     }
 

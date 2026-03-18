@@ -14,7 +14,12 @@ const router = express.Router();
 
 router.post('/', protect, authorize('ADMIN'), createSection);
 router.get('/', protect, getAllSections);
-router.get('/current-year', protect, authorize('HOD'), getCurrentYearsSections);
+router.get(
+  '/current-year/:departmentId',
+  protect,
+  authorize('HOD'),
+  getCurrentYearsSections
+);
 router.get('/:id', protect, getSectionById);
 router.put('/:id', protect, authorize('ADMIN'), updateSection);
 router.delete('/:id', protect, authorize('ADMIN'), deleteSection);

@@ -100,160 +100,165 @@ export const saveTimetableFull = catchAsync(async (req, res, next) => {
     slots,
     entries,
     facultyAssignments,
-    additionalHours
+    additionalHours = []
   } = req.body;
 
   if (!sectionId || !academicYearId || !semesterNumber) {
     return next(new AppError('Missing identifiers', 400));
   }
 
-  let timetable = await Timetable.findOne({
-    sectionId,
-    academicYearId,
-    semesterNumber
-  });
+  // 🔥 UPSERT TIMETABLE (1 query instead of find + create/save)
+  const timetable = await Timetable.findOneAndUpdate(
+    { sectionId, academicYearId, semesterNumber },
+    { $set: { slots } },
+    { new: true, upsert: true }
+  );
 
-  if (!timetable) {
-    timetable = await Timetable.create({
-      sectionId,
-      academicYearId,
-      semesterNumber,
-      slots
-    });
-  } else {
-    timetable.slots = slots;
-    await timetable.save();
-  }
-
-  // 🔥 SLOT SHIFT LOGIC
-  const classSlotOrders = slots
+  // 🔥 SLOT SHIFT (O(n))
+  const classSlots = slots
     .filter((s) => s.type === 'class')
     .map((s) => s.order);
-
   const slotShiftMap = {};
-  let classIndex = 0;
 
+  let idx = 0;
   for (const slot of slots) {
-    if (slot.type === 'class') {
-      slotShiftMap[slot.order] = classSlotOrders[classIndex++];
-    } else {
-      slotShiftMap[slot.order] = null;
-    }
+    slotShiftMap[slot.order] = slot.type === 'class' ? classSlots[idx++] : null;
   }
 
+  // 🔥 DELETE OLD ENTRIES (1 query)
   await TimetableEntry.deleteMany({ timetableId: timetable._id });
 
-  // 🔥 HANDLE ADDITIONAL HOURS (ONLY ONCE)
+  // 🔥 HANDLE ADDITIONAL HOURS (OPTIMIZED)
   let additionalHourIdMap = {};
 
-  if (additionalHours && additionalHours.length > 0) {
-    additionalHours.forEach((hour) => {
+  if (additionalHours.length > 0) {
+    // normalize tempIds
+    for (const h of additionalHours) {
       if (
-        !hour._id &&
-        hour.additionalHourId &&
-        typeof hour.additionalHourId === 'string' &&
-        hour.additionalHourId.startsWith('temp-')
+        !h._id &&
+        typeof h.additionalHourId === 'string' &&
+        h.additionalHourId.startsWith('temp-')
       ) {
-        hour.tempId = hour.additionalHourId;
+        h.tempId = h.additionalHourId;
       }
-    });
+    }
 
-    const bulkOps = additionalHours.map((hour) => {
-      const data = {
-        name: hour.name,
-        shortName: hour.shortName,
-        facultyIds: hour.facultyIds || [],
-        venue: hour.venue || '',
-        hours: hour.hours || 1,
-        sectionId,
-        academicYearId,
-        semesterNumber
-      };
+    // 🔥 FETCH ONLY IDs (lean + minimal data)
+    const existing = await AdditionalHour.find(
+      { sectionId, academicYearId, semesterNumber },
+      { _id: 1, tempId: 1 }
+    ).lean();
 
-      if (hour.tempId) data.tempId = hour.tempId;
-
-      if (hour._id) {
-        return {
-          updateOne: {
-            filter: { _id: hour._id },
-            update: data
-          }
-        };
-      }
-
-      return {
-        insertOne: {
-          document: data
-        }
-      };
-    });
-
-    await AdditionalHour.bulkWrite(bulkOps);
-
-    // 🔥 MAP temp → real IDs
-    const tempHours = additionalHours.filter(
-      (h) => h._id === undefined && h.tempId
+    const existingIdSet = new Set(existing.map((e) => e._id.toString()));
+    const incomingIdSet = new Set(
+      additionalHours.filter((h) => h._id).map((h) => h._id.toString())
     );
 
-    const allAdditionalHours = await AdditionalHour.find({
-      sectionId,
-      academicYearId,
-      semesterNumber
+    // 🔥 DELETE (O(n))
+    const idsToDelete = [];
+    for (const e of existing) {
+      if (!incomingIdSet.has(e._id.toString())) {
+        idsToDelete.push(e._id);
+      }
+    }
+
+    if (idsToDelete.length) {
+      await AdditionalHour.deleteMany({ _id: { $in: idsToDelete } });
+    }
+
+    // 🔥 BULK WRITE (single call)
+    const bulkOps = additionalHours.map((h) => {
+      const data = {
+        name: h.name,
+        shortName: h.shortName,
+        facultyIds: h.facultyIds || [],
+        venue: h.venue || '',
+        hours: h.hours || 1,
+        sectionId,
+        academicYearId,
+        semesterNumber,
+        ...(h.tempId && { tempId: h.tempId })
+      };
+
+      return h._id
+        ? {
+            updateOne: {
+              filter: { _id: h._id },
+              update: data
+            }
+          }
+        : {
+            insertOne: {
+              document: data
+            }
+          };
     });
 
-    tempHours.forEach((tempHour) => {
-      const match = allAdditionalHours.find(
-        (h) => h.tempId === tempHour.tempId
-      );
-      if (match) {
-        additionalHourIdMap[tempHour.tempId] = match._id;
+    if (bulkOps.length) {
+      await AdditionalHour.bulkWrite(bulkOps);
+    }
+
+    // 🔥 BUILD tempId → _id map (NO nested loop)
+    const tempMap = {};
+    for (const e of existing) {
+      if (e.tempId) tempMap[e.tempId] = e._id;
+    }
+
+    if (additionalHours.some((h) => h.tempId && !h._id)) {
+      const latest = await AdditionalHour.find(
+        { sectionId, academicYearId, semesterNumber },
+        { _id: 1, tempId: 1 }
+      ).lean();
+
+      for (const h of latest) {
+        if (h.tempId) tempMap[h.tempId] = h._id;
       }
-    });
+    }
+
+    additionalHourIdMap = tempMap;
   }
 
-  // 🔥 CREATE ENTRIES
-  const entryDocs = entries
-    .map((e) => {
-      const newSlot = slotShiftMap[e.slotOrder];
-      if (!newSlot) return null;
+  // 🔥 CREATE ENTRIES (O(n))
+  const entryDocs = [];
 
-      let additionalHourId = e.additionalHourId;
+  for (const e of entries) {
+    const newSlot = slotShiftMap[e.slotOrder];
+    if (!newSlot) continue;
 
-      if (
-        additionalHourId &&
-        typeof additionalHourId === 'string' &&
-        additionalHourId.startsWith('temp-') &&
-        additionalHourIdMap[additionalHourId]
-      ) {
-        additionalHourId = additionalHourIdMap[additionalHourId];
-      }
+    let additionalHourId = e.additionalHourId;
 
-      return {
-        ...e,
-        slotOrder: newSlot,
-        timetableId: timetable._id,
-        additionalHourId
-      };
-    })
-    .filter(Boolean);
+    if (
+      additionalHourId &&
+      typeof additionalHourId === 'string' &&
+      additionalHourId.startsWith('temp-')
+    ) {
+      additionalHourId = additionalHourIdMap[additionalHourId];
+    }
+
+    entryDocs.push({
+      ...e,
+      slotOrder: newSlot,
+      timetableId: timetable._id,
+      additionalHourId
+    });
+  }
 
   const createdEntries = await TimetableEntry.insertMany(entryDocs);
 
-  // 🔥 UPDATE FACULTY ASSIGNMENTS
-  if (facultyAssignments && facultyAssignments.length > 0) {
-    const bulkUpdates = facultyAssignments.map((fa) => ({
-      updateOne: {
-        filter: { _id: fa._id },
-        update: { $set: { venue: fa.venue } }
-      }
-    }));
-
-    await FacultyAssignment.bulkWrite(bulkUpdates);
+  // 🔥 BULK UPDATE FACULTY ASSIGNMENTS
+  if (facultyAssignments?.length) {
+    await FacultyAssignment.bulkWrite(
+      facultyAssignments.map((fa) => ({
+        updateOne: {
+          filter: { _id: fa._id },
+          update: { $set: { venue: fa.venue } }
+        }
+      }))
+    );
   }
 
   res.status(200).json({
     success: true,
-    status: 'success',
     data: {
       timetableId: timetable._id,
       entriesSaved: createdEntries.length

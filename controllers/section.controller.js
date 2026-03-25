@@ -8,14 +8,26 @@ import StudentAcademicRecord from '../models/StudentAcademicRecord.js';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
-const populateConfig = {
-  path: 'batchProgramId',
-  populate: [
-    { path: 'batchId', select: 'name startYear endYear' },
-    { path: 'departmentId', select: 'name code' },
-    { path: 'regulationId', select: 'name startYear' }
-  ]
+const facultyPopulateConfig = {
+  path: 'advisor tutors',
+  populate: {
+    path: 'departmentId',
+    select: 'name code'
+  },
+  select: 'firstName lastName designation departmentId'
 };
+
+const populateConfig = [
+  {
+    path: 'batchProgramId',
+    populate: [
+      { path: 'batchId', select: 'name startYear endYear' },
+      { path: 'departmentId', select: 'name code' },
+      { path: 'regulationId', select: 'name startYear' }
+    ]
+  },
+  facultyPopulateConfig
+];
 
 export const createSection = async (req, res, next) => {
   try {
@@ -339,6 +351,7 @@ export const getCurrentYearsSections = async (req, res, next) => {
     const sections = await Section.find({
       batchProgramId: { $in: batchProgramIds }
     })
+      .populate(populateConfig)
       .sort({ name: 1 })
       .lean();
 

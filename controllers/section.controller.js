@@ -204,6 +204,7 @@ export const updateSection = async (req, res, next) => {
   try {
     const { id } = req.params;
     const updates = { ...req.body };
+
     if (!isValidObjectId(id)) {
       return res.status(400).json({
         success: false,
@@ -223,6 +224,7 @@ export const updateSection = async (req, res, next) => {
     if (updates.name) {
       updates.name = String(updates.name).trim().toUpperCase();
     }
+
     if (updates.venue) {
       updates.venue = String(updates.venue).trim().toUpperCase();
     }
@@ -315,10 +317,19 @@ export const deleteSection = async (req, res, next) => {
   }
 };
 
-// to update
 export const getCurrentYearsSections = async (req, res, next) => {
   try {
     const { departmentId } = req.params;
+
+    if (!isValidObjectId(departmentId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid departmentId',
+        data: {}
+      });
+    }
+
+    const deptId = new mongoose.Types.ObjectId(departmentId);
 
     const academicYear = await AcademicYear.findOne({ isActive: true });
 
@@ -334,16 +345,20 @@ export const getCurrentYearsSections = async (req, res, next) => {
 
     const batches = await Batch.find({
       startYear: { $lte: currentYear },
-      endYear: { $gt: currentYear }
+      endYear: { $gte: currentYear }
     }).lean();
 
     const batchIds = batches.map((b) => b._id);
 
     const batchPrograms = await BatchProgram.find({
-      departmentId,
+      departmentId: deptId,
       batchId: { $in: batchIds }
     })
-      .populate('batchId')
+      .populate([
+        { path: 'batchId', select: 'name startYear endYear' },
+        { path: 'departmentId', select: 'name code' },
+        { path: 'regulationId', select: 'name startYear' }
+      ])
       .lean();
 
     const batchProgramIds = batchPrograms.map((bp) => bp._id);
@@ -380,7 +395,7 @@ export const getCurrentYearsSections = async (req, res, next) => {
       const year = currentYear - bp.batchId.startYear + 1;
 
       const bpSections = sections
-        .filter((s) => s.batchProgramId.toString() === bp._id.toString())
+        .filter((s) => s.batchProgramId._id.toString() === bp._id.toString())
         .map((s) => ({
           ...s,
           studentCount: countMap[s._id.toString()] || 0
@@ -390,6 +405,7 @@ export const getCurrentYearsSections = async (req, res, next) => {
         year,
         batchProgramId: bp._id,
         batch: bp.batchId,
+        department: bp.departmentId,
         sections: bpSections
       };
     });

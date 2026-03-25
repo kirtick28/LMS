@@ -10,11 +10,11 @@ const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 const facultyPopulateConfig = {
   path: 'advisor tutors',
+  select: 'firstName lastName designation departmentId',
   populate: {
     path: 'departmentId',
     select: 'name code'
-  },
-  select: 'firstName lastName designation departmentId'
+  }
 };
 
 const populateConfig = [

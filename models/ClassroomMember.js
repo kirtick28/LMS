@@ -8,37 +8,35 @@ const classroomMemberSchema = new mongoose.Schema(
       required: true,
       index: true
     },
-    studentId: {
+
+    userId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Student',
-      required: true,
-      index: true
+      ref: 'User',
+      required: true
     },
+
     role: {
       type: String,
-      enum: ['student', 'rep'],
-      default: 'student',
-      index: true
+      enum: ['faculty', 'student'],
+      required: true
     },
-    joinMethod: {
-      type: String,
-      enum: ['auto', 'invite', 'self'],
-      default: 'auto'
-    },
+
     status: {
       type: String,
       enum: ['active', 'removed'],
-      default: 'active',
-      index: true
-    },
-    joinedAt: {
-      type: Date,
-      default: Date.now
+      default: 'active'
     }
   },
   { timestamps: true }
 );
 
-classroomMemberSchema.index({ classroomId: 1, studentId: 1 }, { unique: true });
+// prevent duplicates
+classroomMemberSchema.index(
+  {
+    classroomId: 1,
+    userId: 1
+  },
+  { unique: true }
+);
 
 export default mongoose.model('ClassroomMember', classroomMemberSchema);

@@ -25,6 +25,7 @@ import batchProgramRoutes from './routes/batchProgram.routes.js';
 import facultyAssignmentRoutes from './routes/facultyAssignment.routes.js';
 import studentAcademicRecordRoutes from './routes/studentAcademicRecord.routes.js';
 import timeTableRoutes from './routes/timeTable.routes.js';
+import classroomRoutes from './routes/classroom.routes.js';
 import globalErrorHandler from './middleware/error.middleware.js';
 import AppError from './utils/AppError.js';
 
@@ -59,6 +60,7 @@ app.use('/api/batch-programs', batchProgramRoutes);
 app.use('/api/assign-faculty', facultyAssignmentRoutes);
 app.use('/api/student-academic-records', studentAcademicRecordRoutes);
 app.use('/api/timetable', timeTableRoutes);
+app.use('/api/classroom', classroomRoutes);
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

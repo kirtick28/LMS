@@ -4,14 +4,33 @@ import ClassroomMember from '../models/ClassroomMember.js';
 import AcademicYear from '../models/AcademicYear.js';
 import Section from '../models/Section.js';
 import SubjectComponent from '../models/SubjectComponent.js';
+import Faculty from '../models/Faculty.js';
 import catchAsync from '../utils/catchAsync.js';
 import AppError from '../utils/AppError.js';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
+const sectionDepartmentPopulate = {
+  path: 'sectionId',
+  select: 'name batchProgramId',
+  populate: {
+    path: 'batchProgramId',
+    select: 'departmentId',
+    populate: {
+      path: 'departmentId',
+      select: 'name code'
+    }
+  }
+};
+
 export const getClassrooms = catchAsync(async (req, res, next) => {
-  let { facultyId, sectionId, academicYearId, semesterNumber, status } =
-    req.query;
+  let {
+    facultyId: userId,
+    sectionId,
+    academicYearId,
+    semesterNumber,
+    status
+  } = req.query;
 
   if (!academicYearId) {
     const activeYear = await AcademicYear.findOne({ isActive: true });
@@ -23,9 +42,7 @@ export const getClassrooms = catchAsync(async (req, res, next) => {
     academicYearId = activeYear._id;
   }
 
-  const filter = {
-    academicYearId
-  };
+  const filter = { academicYearId };
 
   if (sectionId) {
     if (!isValidObjectId(sectionId))
@@ -42,10 +59,12 @@ export const getClassrooms = catchAsync(async (req, res, next) => {
     filter.status = status;
   }
 
-  if (facultyId) {
-    if (!isValidObjectId(facultyId)) {
+  if (userId) {
+    if (!isValidObjectId(userId)) {
       return next(new AppError('Invalid facultyId', 400));
     }
+    const faculty = await Faculty.findOne({ userId });
+    const facultyId = faculty._id;
 
     const memberships = await ClassroomMember.find({
       userId: facultyId,
@@ -59,7 +78,7 @@ export const getClassrooms = catchAsync(async (req, res, next) => {
   }
 
   const classrooms = await Classroom.find(filter)
-    .populate('sectionId', 'name')
+    .populate(sectionDepartmentPopulate)
     .populate({
       path: 'subjectComponentId',
       populate: {
@@ -71,10 +90,30 @@ export const getClassrooms = catchAsync(async (req, res, next) => {
     .sort({ createdAt: -1 })
     .lean();
 
+  const transformed = classrooms.map((c) => {
+    const dept = c.sectionId?.batchProgramId?.departmentId || null;
+
+    return {
+      ...c,
+      sectionId: c.sectionId
+        ? {
+            _id: c.sectionId._id,
+            name: c.sectionId.name
+          }
+        : null,
+      department: dept
+        ? {
+            name: dept.name,
+            code: dept.code
+          }
+        : null
+    };
+  });
+
   res.status(200).json({
     success: true,
     message: 'Classrooms fetched successfully',
-    data: { classrooms }
+    data: { classrooms: transformed }
   });
 });
 
@@ -86,7 +125,7 @@ export const getClassroomById = catchAsync(async (req, res, next) => {
   }
 
   const classroom = await Classroom.findById(id)
-    .populate('sectionId', 'name')
+    .populate(sectionDepartmentPopulate)
     .populate({
       path: 'subjectComponentId',
       populate: {
@@ -101,9 +140,27 @@ export const getClassroomById = catchAsync(async (req, res, next) => {
     return next(new AppError('Classroom not found', 404));
   }
 
+  const dept = classroom.sectionId?.batchProgramId?.departmentId || null;
+
+  const transformed = {
+    ...classroom,
+    sectionId: classroom.sectionId
+      ? {
+          _id: classroom.sectionId._id,
+          name: classroom.sectionId.name
+        }
+      : null,
+    department: dept
+      ? {
+          name: dept.name,
+          code: dept.code
+        }
+      : null
+  };
+
   res.status(200).json({
     success: true,
-    data: { classroom }
+    data: { classroom: transformed }
   });
 });
 
@@ -132,7 +189,7 @@ export const updateClassroom = catchAsync(async (req, res, next) => {
     new: true,
     runValidators: true
   })
-    .populate('sectionId', 'name')
+    .populate(sectionDepartmentPopulate)
     .populate({
       path: 'subjectComponentId',
       populate: {
@@ -140,15 +197,34 @@ export const updateClassroom = catchAsync(async (req, res, next) => {
         select: 'name code shortName'
       }
     })
-    .populate('academicYearId', 'name');
+    .populate('academicYearId', 'name')
+    .lean();
 
   if (!classroom) {
     return next(new AppError('Classroom not found', 404));
   }
 
+  const dept = classroom.sectionId?.batchProgramId?.departmentId || null;
+
+  const transformed = {
+    ...classroom,
+    sectionId: classroom.sectionId
+      ? {
+          _id: classroom.sectionId._id,
+          name: classroom.sectionId.name
+        }
+      : null,
+    department: dept
+      ? {
+          name: dept.name,
+          code: dept.code
+        }
+      : null
+  };
+
   res.status(200).json({
     success: true,
     message: 'Classroom updated successfully',
-    data: { classroom }
+    data: { classroom: transformed }
   });
 });

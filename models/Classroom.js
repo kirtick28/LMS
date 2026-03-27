@@ -26,7 +26,7 @@ const classroomSchema = new mongoose.Schema(
       required: true
     },
 
-    name: String, // optional (ex: "DSA Lab - A")
+    name: String,
 
     status: {
       type: String,

@@ -7,6 +7,7 @@ import AcademicYear from '../models/AcademicYear.js';
 import Department from '../models/Department.js';
 import Batch from '../models/Batch.js';
 import BatchProgram from '../models/BatchProgram.js';
+import Classroom from '../models/Classroom.js';
 import Section from '../models/Section.js';
 import AppError from '../utils/AppError.js';
 import StudentHelper from '../utils/StudentHelper.js';
@@ -1215,6 +1216,13 @@ export const semesterShift = async (req, res, next) => {
       throw new AppError('departmentId and batchId are required', 400);
     }
 
+    if (
+      !mongoose.Types.ObjectId.isValid(departmentId) ||
+      !mongoose.Types.ObjectId.isValid(batchId)
+    ) {
+      throw new AppError('Invalid departmentId or batchId', 400);
+    }
+
     const batch = await Batch.findById(batchId);
 
     if (!batch) {
@@ -1230,7 +1238,7 @@ export const semesterShift = async (req, res, next) => {
         status: 'active'
       },
       '_id semesterNumber sectionId'
-    );
+    ).lean();
 
     if (!students.length) {
       throw new AppError(
@@ -1279,10 +1287,14 @@ export const semesterShift = async (req, res, next) => {
       academicYearChanged = true;
     }
 
+    const studentIds = students.map((s) => s._id);
+
+    const sectionIds = [
+      ...new Set(students.map((s) => s.sectionId.toString()))
+    ].map((id) => new mongoose.Types.ObjectId(id));
+
     session = await mongoose.startSession();
     session.startTransaction();
-
-    const studentIds = students.map((s) => s._id);
 
     await StudentAcademicRecord.updateMany(
       {
@@ -1292,6 +1304,17 @@ export const semesterShift = async (req, res, next) => {
         status: 'active'
       },
       { $set: { status: 'completed' } },
+      { session }
+    );
+
+    await Classroom.updateMany(
+      {
+        academicYearId: currentAcademicYear._id,
+        semesterNumber: currentSemester,
+        sectionId: { $in: sectionIds },
+        status: { $ne: 'archived' }
+      },
+      { $set: { status: 'archived' } },
       { session }
     );
 

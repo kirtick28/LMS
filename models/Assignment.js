@@ -24,12 +24,15 @@ const assignmentSchema = new mongoose.Schema(
       default: false
     },
 
-    dueDate: Date,
+    dueDate: {
+      type: Date,
+      default: null
+    },
 
     submissionType: {
       type: String,
-      enum: ['file', 'link', 'text'],
-      default: 'file'
+      enum: ['file', 'link', 'text', 'any'],
+      default: 'any'
     },
 
     allowLateSubmission: {

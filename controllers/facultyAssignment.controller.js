@@ -13,161 +13,9 @@ import catchAsync from '../utils/catchAsync.js';
 import AppError from '../utils/AppError.js';
 import Classroom from '../models/Classroom.js';
 import ClassroomMember from '../models/ClassroomMember.js';
+import Topic from '../models/Topic.js'; // Ensure Topic model is imported
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
-
-export const createFacultyAssignment = catchAsync(async (req, res, next) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
-    const { allocations, sectionId, academicYearId, semesterNumber } = req.body;
-
-    if (
-      !allocations ||
-      !Array.isArray(allocations) ||
-      !sectionId ||
-      !academicYearId ||
-      !semesterNumber
-    ) {
-      throw new AppError('Missing required fields', 400);
-    }
-
-    if (!isValidObjectId(sectionId) || !isValidObjectId(academicYearId)) {
-      throw new AppError('Invalid ObjectId', 400);
-    }
-
-    // 🔥 Parallel fetch
-    const [section, academicYear] = await Promise.all([
-      Section.findById(sectionId).populate('batchProgramId').session(session),
-      AcademicYear.findById(academicYearId).session(session)
-    ]);
-
-    if (!section || !academicYear) {
-      throw new AppError('Section or AcademicYear not found', 404);
-    }
-
-    const batchProgram = section.batchProgramId;
-
-    const curriculum = await Curriculum.findOne({
-      departmentId: batchProgram.departmentId,
-      regulationId: batchProgram.regulationId,
-      'semesters.semesterNumber': semesterNumber
-    }).session(session);
-
-    if (!curriculum) throw new AppError('Curriculum not found', 400);
-
-    const semester = curriculum.semesters.find(
-      (s) => s.semesterNumber === Number(semesterNumber)
-    );
-
-    const subjectComponentIds = allocations.map((a) => a.subjectComponentId);
-
-    // 🔥 Fetch all components once
-    const subjectComponents = await SubjectComponent.find({
-      _id: { $in: subjectComponentIds }
-    })
-      .populate('subjectId')
-      .session(session);
-
-    const componentMap = new Map(
-      subjectComponents.map((c) => [c._id.toString(), c])
-    );
-
-    // 🔥 Validate faculty once
-    const allFacultyIds = [
-      ...new Set(allocations.flatMap((a) => a.facultyIds || []))
-    ];
-
-    const facultiesCount = await Faculty.countDocuments({
-      _id: { $in: allFacultyIds }
-    }).session(session);
-
-    if (facultiesCount !== allFacultyIds.length) {
-      throw new AppError('Invalid facultyIds', 404);
-    }
-
-    // 🔥 Existing assignments
-    const existingAssignments = await FacultyAssignment.find({
-      sectionId,
-      academicYearId,
-      semesterNumber,
-      subjectComponentId: { $in: subjectComponentIds }
-    }).session(session);
-
-    const existingMap = new Map(
-      existingAssignments.map((a) => [a.subjectComponentId.toString(), a])
-    );
-
-    const bulkOps = [];
-
-    for (const { subjectComponentId, facultyIds = [] } of allocations) {
-      const component = componentMap.get(subjectComponentId);
-
-      if (!component) throw new AppError('Invalid subjectComponent', 404);
-
-      const subject = component.subjectId;
-
-      if (
-        !semester.subjects.some(
-          (id) => id.toString() === subject._id.toString()
-        )
-      ) {
-        throw new AppError(`Subject ${subject.name} not in curriculum`, 400);
-      }
-
-      const existing = existingMap.get(subjectComponentId);
-
-      if (existing) {
-        if (facultyIds.length === 0) {
-          bulkOps.push({ deleteOne: { filter: { _id: existing._id } } });
-        } else {
-          bulkOps.push({
-            updateOne: {
-              filter: { _id: existing._id },
-              update: { facultyIds }
-            }
-          });
-        }
-      } else if (facultyIds.length > 0) {
-        bulkOps.push({
-          insertOne: {
-            document: {
-              facultyIds,
-              sectionId,
-              subjectComponentId,
-              academicYearId,
-              semesterNumber,
-              assignedBy: req.user?._id || null,
-              status: 'active'
-            }
-          }
-        });
-      }
-    }
-
-    if (bulkOps.length) {
-      await FacultyAssignment.bulkWrite(bulkOps, { session });
-    }
-
-    // 🔥 FAST CLASSROOM SYNC
-    await fastSyncClassrooms({
-      sectionId,
-      academicYearId,
-      semesterNumber,
-      session
-    });
-
-    await session.commitTransaction();
-    session.endSession();
-
-    res.status(201).json({ success: true });
-  } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
-    next(err);
-  }
-});
 
 const fastSyncClassrooms = async ({
   sectionId,
@@ -219,15 +67,29 @@ const fastSyncClassrooms = async ({
     }
   }
 
+  // 🔥 Handle New Classrooms and their Default Topics
   if (classroomsToInsert.length) {
-    await Classroom.insertMany(classroomsToInsert, { session });
+    const newClassrooms = await Classroom.insertMany(classroomsToInsert, {
+      session
+    });
+
+    // Create default "No Topic" for each newly created classroom
+    const defaultTopics = newClassrooms.map((classroom) => ({
+      classroomId: classroom._id,
+      name: 'No Topic',
+      isDefault: true
+    }));
+
+    if (defaultTopics.length) {
+      await Topic.insertMany(defaultTopics, { session });
+    }
   }
 
   if (classroomUpdates.length) {
     await Classroom.bulkWrite(classroomUpdates, { session });
   }
 
-  // 🔥 REFETCH (only if new created)
+  // 🔥 REFETCH
   const finalClassrooms = await Classroom.find({
     sectionId,
     academicYearId,
@@ -286,6 +148,154 @@ const fastSyncClassrooms = async ({
     await Classroom.bulkWrite(classroomUpdates, { session });
   }
 };
+
+export const createFacultyAssignment = catchAsync(async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { allocations, sectionId, academicYearId, semesterNumber } = req.body;
+
+    if (
+      !allocations ||
+      !Array.isArray(allocations) ||
+      !sectionId ||
+      !academicYearId ||
+      !semesterNumber
+    ) {
+      throw new AppError('Missing required fields', 400);
+    }
+
+    if (!isValidObjectId(sectionId) || !isValidObjectId(academicYearId)) {
+      throw new AppError('Invalid ObjectId', 400);
+    }
+
+    const [section, academicYear] = await Promise.all([
+      Section.findById(sectionId).populate('batchProgramId').session(session),
+      AcademicYear.findById(academicYearId).session(session)
+    ]);
+
+    if (!section || !academicYear) {
+      throw new AppError('Section or AcademicYear not found', 404);
+    }
+
+    const batchProgram = section.batchProgramId;
+
+    const curriculum = await Curriculum.findOne({
+      departmentId: batchProgram.departmentId,
+      regulationId: batchProgram.regulationId,
+      'semesters.semesterNumber': semesterNumber
+    }).session(session);
+
+    if (!curriculum) throw new AppError('Curriculum not found', 400);
+
+    const semester = curriculum.semesters.find(
+      (s) => s.semesterNumber === Number(semesterNumber)
+    );
+
+    const subjectComponentIds = allocations.map((a) => a.subjectComponentId);
+
+    const subjectComponents = await SubjectComponent.find({
+      _id: { $in: subjectComponentIds }
+    })
+      .populate('subjectId')
+      .session(session);
+
+    const componentMap = new Map(
+      subjectComponents.map((c) => [c._id.toString(), c])
+    );
+
+    const allFacultyIds = [
+      ...new Set(allocations.flatMap((a) => a.facultyIds || []))
+    ];
+
+    const facultiesCount = await Faculty.countDocuments({
+      _id: { $in: allFacultyIds }
+    }).session(session);
+
+    if (facultiesCount !== allFacultyIds.length) {
+      throw new AppError('Invalid facultyIds', 404);
+    }
+
+    const existingAssignments = await FacultyAssignment.find({
+      sectionId,
+      academicYearId,
+      semesterNumber,
+      subjectComponentId: { $in: subjectComponentIds }
+    }).session(session);
+
+    const existingMap = new Map(
+      existingAssignments.map((a) => [a.subjectComponentId.toString(), a])
+    );
+
+    const bulkOps = [];
+
+    for (const { subjectComponentId, facultyIds = [] } of allocations) {
+      const component = componentMap.get(subjectComponentId);
+      if (!component) throw new AppError('Invalid subjectComponent', 404);
+
+      const subject = component.subjectId;
+
+      if (
+        !semester.subjects.some(
+          (id) => id.toString() === subject._id.toString()
+        )
+      ) {
+        throw new AppError(`Subject ${subject.name} not in curriculum`, 400);
+      }
+
+      const existing = existingMap.get(subjectComponentId);
+
+      if (existing) {
+        if (facultyIds.length === 0) {
+          bulkOps.push({ deleteOne: { filter: { _id: existing._id } } });
+        } else {
+          bulkOps.push({
+            updateOne: {
+              filter: { _id: existing._id },
+              update: { facultyIds }
+            }
+          });
+        }
+      } else if (facultyIds.length > 0) {
+        bulkOps.push({
+          insertOne: {
+            document: {
+              facultyIds,
+              sectionId,
+              subjectComponentId,
+              academicYearId,
+              semesterNumber,
+              assignedBy: req.user?._id || null,
+              status: 'active'
+            }
+          }
+        });
+      }
+    }
+
+    if (bulkOps.length) {
+      await FacultyAssignment.bulkWrite(bulkOps, { session });
+    }
+
+    // 🔥 FAST CLASSROOM SYNC (Now creates default topics)
+    await fastSyncClassrooms({
+      sectionId,
+      academicYearId,
+      semesterNumber,
+      session
+    });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(201).json({ success: true });
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    next(err);
+  }
+});
 
 export const getAllFacultyAssignments = catchAsync(async (req, res, next) => {
   const { facultyId, sectionId, academicYearId, semesterNumber, status } =

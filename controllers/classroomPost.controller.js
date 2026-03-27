@@ -117,28 +117,50 @@ export const updateTopic = catchAsync(async (req, res, next) => {
 });
 
 export const deleteTopic = catchAsync(async (req, res, next) => {
-  const { topicId } = req.params;
-
-  if (!topicId) {
-    return next(new AppError('topicId is required', 400));
-  }
+  const { classroomId, topicId } = req.params;
 
   if (!mongoose.Types.ObjectId.isValid(topicId)) {
     return next(new AppError('Invalid topicId', 400));
   }
 
-  const topic = await Topic.findById(topicId);
+  const topic = await Topic.findOne({ _id: topicId, classroomId });
 
   if (!topic) {
     return next(new AppError('Topic not found', 404));
   }
 
-  await Topic.findByIdAndDelete(topicId);
+  if (topic.isDefault) {
+    return next(new AppError('Cannot delete the default topic', 400));
+  }
 
-  res.status(200).json({
-    success: true,
-    message: 'Topic deleted successfully'
-  });
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // 1. Get or create the default topic for migration
+    const defaultTopic = await getOrCreateTopic(classroomId, session);
+
+    // 2. Move all posts from the deleting topic to the default topic
+    await ClassroomPost.updateMany(
+      { classroomId, topicId: topic._id },
+      { topicId: defaultTopic._id },
+      { session }
+    );
+
+    // 3. Delete the topic
+    await Topic.findByIdAndDelete(topicId).session(session);
+
+    await session.commitTransaction();
+    res.status(200).json({
+      success: true,
+      message: 'Topic deleted and posts moved to default topic'
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    return next(new AppError(error.message, 500));
+  } finally {
+    session.endSession();
+  }
 });
 
 // ================= POST =================
@@ -149,12 +171,12 @@ export const createPost = catchAsync(async (req, res, next) => {
     type,
     title,
     instructions,
-    topicId, // ⚠️ fix (you had topicName but used topicId)
+    topicId,
     points,
     isUngraded,
     dueDate,
     submissionType,
-    isQuiz,
+    quizData,
     questionType,
     options
   } = req.body;
@@ -187,7 +209,6 @@ export const createPost = catchAsync(async (req, res, next) => {
 
   // ================= ATTACHMENTS =================
   let attachments = [];
-
   if (req.file) {
     attachments.push({
       fileName: req.file.originalname,
@@ -198,11 +219,9 @@ export const createPost = catchAsync(async (req, res, next) => {
 
   if (req.body.attachments) {
     let parsedAttachments = req.body.attachments;
-
     if (typeof parsedAttachments === 'string') {
       parsedAttachments = JSON.parse(parsedAttachments);
     }
-
     if (Array.isArray(parsedAttachments)) {
       parsedAttachments.forEach((att) => {
         if (att.fileUrl) {
@@ -222,15 +241,12 @@ export const createPost = catchAsync(async (req, res, next) => {
   try {
     // ================= TOPIC =================
     let topic;
-
     if (!topicId) {
       topic = await getOrCreateTopic(classroomId, session);
     } else {
-      topic = await Topic.findOne({
-        _id: topicId,
-        classroomId
-      }).session(session);
-
+      topic = await Topic.findOne({ _id: topicId, classroomId }).session(
+        session
+      );
       if (!topic) {
         topic = await getOrCreateTopic(classroomId, session);
       }
@@ -271,19 +287,29 @@ export const createPost = catchAsync(async (req, res, next) => {
       );
     }
 
-    // ================= QUIZ =================
+    // ================= UPDATED QUIZ LOGIC =================
     if (type === 'quiz') {
+      const qData = JSON.parse(quizData);
+      // Expecting quizData to contain: { isAutoGraded, questions: [...] }
+      if (!qData || !qData.questions) {
+        throw new AppError(
+          'Quiz data and questions are required for quiz type',
+          400
+        );
+      }
+
       await Quiz.create(
         [
           {
             postId,
-            isQuiz: true,
-            points: isUngraded ? null : Number(points),
-            isUngraded: !!isUngraded,
-            dueDate,
-            submissionType,
-            questionType,
-            options: questionType === 'multiple_choice' ? options : []
+            isAutoGraded:
+              qData.isAutoGraded !== undefined ? qData.isAutoGraded : true,
+            questions: qData.questions,
+            dueDate
+            /**
+             * Note: The Quiz model 'pre-save' hook will automatically
+             * calculate totalMarks based on the points in each question.
+             */
           }
         ],
         { session }
@@ -329,7 +355,7 @@ export const createPost = catchAsync(async (req, res, next) => {
 export const updatePost = catchAsync(async (req, res, next) => {
   const { postId } = req.params;
   let updates = { ...req.body };
-  console.log(req.body);
+
   if (!mongoose.Types.ObjectId.isValid(postId)) {
     return next(new AppError('Invalid postId', 400));
   }
@@ -353,7 +379,6 @@ export const updatePost = catchAsync(async (req, res, next) => {
         return next(new AppError('Invalid attachments format', 400));
       }
     }
-
     if (!Array.isArray(updates.attachments)) {
       updates.attachments = [];
     }
@@ -361,7 +386,6 @@ export const updatePost = catchAsync(async (req, res, next) => {
 
   if (req.file) {
     if (!updates.attachments) updates.attachments = [];
-
     updates.attachments.push({
       fileName: req.file.originalname,
       fileUrl: `/pdf/${req.file.filename}`,
@@ -376,7 +400,6 @@ export const updatePost = catchAsync(async (req, res, next) => {
     // ================= TOPIC UPDATE =================
     if (updates.topicId) {
       let topic;
-
       if (!mongoose.Types.ObjectId.isValid(updates.topicId)) {
         topic = await getOrCreateTopic(post.classroomId, session);
       } else {
@@ -389,13 +412,11 @@ export const updatePost = catchAsync(async (req, res, next) => {
           topic = await getOrCreateTopic(post.classroomId, session);
         }
       }
-
       post.topicId = topic._id;
     }
 
     // ================= BASE POST UPDATE =================
     const baseFields = ['title', 'instructions', 'attachments'];
-
     baseFields.forEach((key) => {
       if (updates[key] !== undefined) {
         post[key] = updates[key];
@@ -409,17 +430,13 @@ export const updatePost = catchAsync(async (req, res, next) => {
 
     if (type === 'assignment') {
       const assignment = await Assignment.findOne({ postId }).session(session);
-
       if (assignment) {
         if ('points' in updates)
           assignment.points = updates.isUngraded
             ? null
             : Number(updates.points);
-
         if ('isUngraded' in updates) assignment.isUngraded = updates.isUngraded;
-
         if ('dueDate' in updates) assignment.dueDate = updates.dueDate;
-
         if ('submissionType' in updates)
           assignment.submissionType = updates.submissionType;
 
@@ -427,27 +444,24 @@ export const updatePost = catchAsync(async (req, res, next) => {
       }
     }
 
+    // UPDATED QUIZ LOGIC
     if (type === 'quiz') {
       const quiz = await Quiz.findOne({ postId }).session(session);
-
       if (quiz) {
-        if ('points' in updates)
-          quiz.points = updates.isUngraded ? null : Number(updates.points);
+        if (updates.isAutoGraded !== undefined) {
+          quiz.isAutoGraded = updates.isAutoGraded;
+        }
 
-        if ('isUngraded' in updates) quiz.isUngraded = updates.isUngraded;
+        if (updates.questions && Array.isArray(updates.questions)) {
+          quiz.questions = updates.questions;
+        }
 
-        if ('dueDate' in updates) quiz.dueDate = updates.dueDate;
+        if (updates.dueDate !== undefined) {
+          quiz.dueDate = updates.dueDate;
+        }
 
-        if ('submissionType' in updates)
-          quiz.submissionType = updates.submissionType;
-
-        if ('questionType' in updates) quiz.questionType = updates.questionType;
-
-        if (
-          'options' in updates &&
-          updates.questionType === 'multiple_choice'
-        ) {
-          quiz.options = updates.options;
+        if (updates.allowLateSubmission !== undefined) {
+          quiz.allowLateSubmission = updates.allowLateSubmission;
         }
 
         await quiz.save({ session });
@@ -456,28 +470,22 @@ export const updatePost = catchAsync(async (req, res, next) => {
 
     if (type === 'question') {
       const question = await Question.findOne({ postId }).session(session);
-
       if (question) {
         if ('questionType' in updates)
           question.questionType = updates.questionType;
-
         if (
           'options' in updates &&
           updates.questionType === 'multiple_choice'
         ) {
           question.options = updates.options;
         }
-
         if ('points' in updates)
           question.points = updates.isUngraded ? null : Number(updates.points);
-
         if ('isUngraded' in updates) question.isUngraded = updates.isUngraded;
 
         await question.save({ session });
       }
     }
-
-    // material → no extra update
 
     await session.commitTransaction();
 
@@ -495,51 +503,68 @@ export const updatePost = catchAsync(async (req, res, next) => {
 });
 
 export const deletePost = catchAsync(async (req, res, next) => {
-  const { postId } = req.params;
+  const { classroomId, postId } = req.params;
 
   if (!mongoose.Types.ObjectId.isValid(postId)) {
     return next(new AppError('Invalid postId', 400));
   }
 
-  // ================= BASE POST =================
-  const post = await ClassroomPost.findById(postId);
+  // Find the post and ensure it belongs to the specified classroom
+  const post = await ClassroomPost.findOne({ _id: postId, classroomId });
 
-  if (!post || post.isDeleted) {
+  if (!post) {
     return next(new AppError('Post not found', 404));
   }
 
-  // ================= AUTH =================
-  if (post.createdBy.toString() !== req.user._id.toString()) {
-    return next(new AppError('Not authorized to delete this post', 403));
-  }
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  // ================= SOFT DELETE =================
-  post.isDeleted = true;
-  await post.save();
+  try {
+    // 1. Delete associated child documents based on the post type
+    switch (post.type) {
+      case 'assignment':
+        await Assignment.findOneAndDelete({ postId: post._id }).session(
+          session
+        );
+        break;
+      case 'quiz':
+        await Quiz.findOneAndDelete({ postId: post._id }).session(session);
+        break;
+      case 'question':
+        await Question.findOneAndDelete({ postId: post._id }).session(session);
+        break;
+      case 'material':
+        await Material.findOneAndDelete({ postId: post._id }).session(session);
+        break;
+      default:
+        // 'announcement' has no extra child document to delete
+        break;
+    }
 
-  // ================= OPTIONAL: CHILD CLEANUP =================
-  // (not required since you use aggregation, but good practice)
-  /*
-  if (post.type === 'assignment') {
-    await Assignment.deleteOne({ postId });
-  }
-  if (post.type === 'quiz') {
-    await Quiz.deleteOne({ postId });
-  }
-  if (post.type === 'question') {
-    await Question.deleteOne({ postId });
-  }
-  if (post.type === 'material') {
-    await Material.deleteOne({ postId });
-  }
-  */
+    // 2. Delete all comments associated with this post
+    await Comment.deleteMany({ postId: post._id }).session(session);
 
-  res.status(200).json({
-    success: true,
-    message: 'Post deleted successfully'
-  });
+    /**
+     * Note: If you eventually implement a 'Submission' model for
+     * assignments or quizzes, you should also add:
+     * await Submission.deleteMany({ postId: post._id }).session(session);
+     */
+
+    // 3. Delete the main post
+    await ClassroomPost.findByIdAndDelete(postId).session(session);
+
+    await session.commitTransaction();
+    res.status(200).json({
+      success: true,
+      message: `Post (${post.type}) and all associated child data/comments deleted successfully`
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    return next(new AppError(error.message, 500));
+  } finally {
+    session.endSession();
+  }
 });
-
 // ================= STREAM =================
 export const getStream = catchAsync(async (req, res, next) => {
   const { classroomId } = req.params;

@@ -38,7 +38,7 @@ export const protect = async (req, res, next) => {
           data: {}
         });
       }
-      req.user.role = 'HOD';
+      if (faculty.designation === 'HOD') req.user.role = 'HOD';
     }
 
     next();

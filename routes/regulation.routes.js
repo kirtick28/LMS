@@ -6,7 +6,7 @@ import {
   updateRegulation,
   deleteRegulation
 } from '../controllers/regulation.controller.js';
-import { protect, authorize } from '../middleware/auth.middleware.js';
+import { protect, authorize } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 

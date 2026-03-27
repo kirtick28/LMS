@@ -1,12 +1,15 @@
 import express from 'express';
+import classroomPostRouter from './classroomPost.routes.js';
 import {
   getClassrooms,
   getClassroomById,
   updateClassroom
 } from '../controllers/classroom.controller.js';
-import { protect, authorize } from '../middleware/auth.middleware.js';
+import { protect, authorize } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
+
+router.use('/:classroomId/posts', classroomPostRouter);
 
 router.get(
   '/',
@@ -20,7 +23,7 @@ router.get(
   authorize('ADMIN', 'FACULTY', 'STUDENT', 'HOD'),
   getClassroomById
 );
-router.get(
+router.put(
   '/:id',
   protect,
   authorize('ADMIN', 'FACULTY', 'HOD'),

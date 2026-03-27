@@ -26,7 +26,7 @@ import facultyAssignmentRoutes from './routes/facultyAssignment.routes.js';
 import studentAcademicRecordRoutes from './routes/studentAcademicRecord.routes.js';
 import timeTableRoutes from './routes/timeTable.routes.js';
 import classroomRoutes from './routes/classroom.routes.js';
-import globalErrorHandler from './middleware/error.middleware.js';
+import globalErrorHandler from './middlewares/error.middleware.js';
 import AppError from './utils/AppError.js';
 
 const __filename = fileURLToPath(import.meta.url);

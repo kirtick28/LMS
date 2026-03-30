@@ -13,11 +13,13 @@ const classroomInvitationSchema = new mongoose.Schema(
       ref: 'User'
     },
 
-    invitedEmail: String, // for external invite
+    invitedEmail: {
+      type: String
+    },
 
     role: {
       type: String,
-      enum: ['faculty', 'student']
+      enum: ['FACULTY', 'STUDENT']
     },
 
     status: {
@@ -29,6 +31,17 @@ const classroomInvitationSchema = new mongoose.Schema(
     invitedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
+    },
+
+    token: {
+      type: String,
+      required: true,
+      unique: true,
+      default: () => crypto.randomBytes(32).toString('hex')
+    },
+    expiresAt: {
+      type: Date,
+      default: () => Date.now() + 24 * 60 * 60 * 1000
     }
   },
   { timestamps: true }

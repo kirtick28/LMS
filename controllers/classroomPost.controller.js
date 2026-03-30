@@ -2,7 +2,6 @@ import mongoose from 'mongoose';
 import ClassroomPost from '../models/ClassroomPost.js';
 import Assignment from '../models/Assignment.js';
 import Comment from '../models/Comment.js';
-import Question from '../models/Question.js';
 import Material from '../models/Material.js';
 import Topic from '../models/Topic.js';
 import Quiz from '../models/Quiz.js';
@@ -177,7 +176,6 @@ export const createPost = catchAsync(async (req, res, next) => {
     dueDate,
     submissionType,
     quizData,
-    questionType,
     options
   } = req.body;
 
@@ -191,13 +189,7 @@ export const createPost = catchAsync(async (req, res, next) => {
     return next(new AppError('Invalid classroomId', 400));
   }
 
-  const allowedTypes = [
-    'announcement',
-    'assignment',
-    'quiz',
-    'question',
-    'material'
-  ];
+  const allowedTypes = ['announcement', 'assignment', 'quiz', 'material'];
 
   if (!allowedTypes.includes(type)) {
     return next(new AppError('Invalid post type', 400));
@@ -290,7 +282,6 @@ export const createPost = catchAsync(async (req, res, next) => {
     // ================= UPDATED QUIZ LOGIC =================
     if (type === 'quiz') {
       const qData = JSON.parse(quizData);
-      // Expecting quizData to contain: { isAutoGraded, questions: [...] }
       if (!qData || !qData.questions) {
         throw new AppError(
           'Quiz data and questions are required for quiz type',
@@ -310,22 +301,6 @@ export const createPost = catchAsync(async (req, res, next) => {
              * Note: The Quiz model 'pre-save' hook will automatically
              * calculate totalMarks based on the points in each question.
              */
-          }
-        ],
-        { session }
-      );
-    }
-
-    // ================= QUESTION =================
-    if (type === 'question') {
-      await Question.create(
-        [
-          {
-            postId,
-            questionType,
-            options: questionType === 'multiple_choice' ? options : [],
-            points: isUngraded ? null : Number(points),
-            isUngraded: isUngraded ?? true
           }
         ],
         { session }
@@ -468,25 +443,6 @@ export const updatePost = catchAsync(async (req, res, next) => {
       }
     }
 
-    if (type === 'question') {
-      const question = await Question.findOne({ postId }).session(session);
-      if (question) {
-        if ('questionType' in updates)
-          question.questionType = updates.questionType;
-        if (
-          'options' in updates &&
-          updates.questionType === 'multiple_choice'
-        ) {
-          question.options = updates.options;
-        }
-        if ('points' in updates)
-          question.points = updates.isUngraded ? null : Number(updates.points);
-        if ('isUngraded' in updates) question.isUngraded = updates.isUngraded;
-
-        await question.save({ session });
-      }
-    }
-
     await session.commitTransaction();
 
     res.status(200).json({
@@ -529,9 +485,6 @@ export const deletePost = catchAsync(async (req, res, next) => {
         break;
       case 'quiz':
         await Quiz.findOneAndDelete({ postId: post._id }).session(session);
-        break;
-      case 'question':
-        await Question.findOneAndDelete({ postId: post._id }).session(session);
         break;
       case 'material':
         await Material.findOneAndDelete({ postId: post._id }).session(session);
@@ -645,17 +598,6 @@ export const getStream = catchAsync(async (req, res, next) => {
       }
     },
     { $unwind: { path: '$quiz', preserveNullAndEmptyArrays: true } },
-
-    // ================= QUESTION =================
-    {
-      $lookup: {
-        from: 'questions',
-        localField: '_id',
-        foreignField: 'postId',
-        as: 'question'
-      }
-    },
-    { $unwind: { path: '$question', preserveNullAndEmptyArrays: true } },
 
     // ================= MATERIAL =================
     {
@@ -801,7 +743,6 @@ export const getStream = catchAsync(async (req, res, next) => {
 
         assignment: 1,
         quiz: 1,
-        question: 1,
         material: 1,
 
         comments: 1,
@@ -833,7 +774,6 @@ export const getClasswork = catchAsync(async (req, res, next) => {
       }
     },
 
-    // ================= GET POSTS =================
     {
       $lookup: {
         from: 'classroomposts',
@@ -850,7 +790,6 @@ export const getClasswork = catchAsync(async (req, res, next) => {
             }
           },
 
-          // ================= USER =================
           {
             $lookup: {
               from: 'users',
@@ -861,7 +800,6 @@ export const getClasswork = catchAsync(async (req, res, next) => {
           },
           { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
 
-          // ================= FACULTY =================
           {
             $lookup: {
               from: 'faculties',
@@ -881,7 +819,6 @@ export const getClasswork = catchAsync(async (req, res, next) => {
             }
           },
 
-          // ================= MERGE USER =================
           {
             $addFields: {
               createdByUser: {
@@ -894,7 +831,6 @@ export const getClasswork = catchAsync(async (req, res, next) => {
             }
           },
 
-          // ================= ASSIGNMENT =================
           {
             $lookup: {
               from: 'assignments',
@@ -910,7 +846,6 @@ export const getClasswork = catchAsync(async (req, res, next) => {
             }
           },
 
-          // ================= QUIZ =================
           {
             $lookup: {
               from: 'quizzes',
@@ -926,23 +861,6 @@ export const getClasswork = catchAsync(async (req, res, next) => {
             }
           },
 
-          // ================= QUESTION =================
-          {
-            $lookup: {
-              from: 'questions',
-              localField: '_id',
-              foreignField: 'postId',
-              as: 'question'
-            }
-          },
-          {
-            $unwind: {
-              path: '$question',
-              preserveNullAndEmptyArrays: true
-            }
-          },
-
-          // ================= MATERIAL =================
           {
             $lookup: {
               from: 'materials',
@@ -958,7 +876,6 @@ export const getClasswork = catchAsync(async (req, res, next) => {
             }
           },
 
-          // ================= FINAL POST SHAPE =================
           {
             $project: {
               _id: 1,
@@ -977,7 +894,6 @@ export const getClasswork = catchAsync(async (req, res, next) => {
 
               assignment: 1,
               quiz: 1,
-              question: 1,
               material: 1
             }
           },
@@ -988,7 +904,6 @@ export const getClasswork = catchAsync(async (req, res, next) => {
       }
     },
 
-    // ================= FINAL TOPIC SHAPE =================
     {
       $project: {
         _id: 1,

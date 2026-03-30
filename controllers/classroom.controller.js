@@ -1,10 +1,12 @@
 import mongoose from 'mongoose';
 import Classroom from '../models/Classroom.js';
 import ClassroomMember from '../models/ClassroomMember.js';
+import ClassroomInvitation from '../models/ClassroomInvitation.js';
 import AcademicYear from '../models/AcademicYear.js';
 import Section from '../models/Section.js';
 import SubjectComponent from '../models/SubjectComponent.js';
 import Faculty from '../models/Faculty.js';
+import Student from '../models/Student.js';
 import catchAsync from '../utils/catchAsync.js';
 import AppError from '../utils/AppError.js';
 
@@ -24,13 +26,7 @@ const sectionDepartmentPopulate = {
 };
 
 export const getClassrooms = catchAsync(async (req, res, next) => {
-  let {
-    facultyId: userId,
-    sectionId,
-    academicYearId,
-    semesterNumber,
-    status
-  } = req.query;
+  let { userId, sectionId, academicYearId, semesterNumber, status } = req.query;
 
   if (!academicYearId) {
     const activeYear = await AcademicYear.findOne({ isActive: true });
@@ -63,12 +59,9 @@ export const getClassrooms = catchAsync(async (req, res, next) => {
     if (!isValidObjectId(userId)) {
       return next(new AppError('Invalid facultyId', 400));
     }
-    const faculty = await Faculty.findOne({ userId });
-    const facultyId = faculty._id;
-
     const memberships = await ClassroomMember.find({
-      userId: facultyId,
-      role: 'faculty',
+      userId,
+      role: 'FACULTY',
       status: 'active'
     }).select('classroomId');
 

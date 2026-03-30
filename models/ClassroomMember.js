@@ -17,7 +17,7 @@ const classroomMemberSchema = new mongoose.Schema(
 
     role: {
       type: String,
-      enum: ['faculty', 'student'],
+      enum: ['FACULTY', 'STUDENT'],
       required: true
     },
 

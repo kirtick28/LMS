@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { v4 as uuidv4 } from 'uuid';
 import FacultyAssignment from '../models/FacultyAssignment.js';
 import Faculty from '../models/Faculty.js';
 import Section from '../models/Section.js';
@@ -16,6 +17,20 @@ import ClassroomMember from '../models/ClassroomMember.js';
 import Topic from '../models/Topic.js'; // Ensure Topic model is imported
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+
+const generateUniqueJoinCode = async (ClassroomModel, session) => {
+  let isUnique = false;
+  let code = '';
+
+  while (!isUnique) {
+    code = uuidv4().split('-')[0].toUpperCase();
+    const existing = await ClassroomModel.findOne({ joinCode: code }).session(
+      session
+    );
+    if (!existing) isUnique = true;
+  }
+  return code;
+};
 
 const fastSyncClassrooms = async ({
   sectionId,
@@ -37,7 +52,6 @@ const fastSyncClassrooms = async ({
   const assignmentMap = new Map(
     assignments.map((a) => [a.subjectComponentId.toString(), a])
   );
-
   const classroomMap = new Map(
     classrooms.map((c) => [c.subjectComponentId.toString(), c])
   );
@@ -45,16 +59,20 @@ const fastSyncClassrooms = async ({
   const classroomsToInsert = [];
   const classroomUpdates = [];
 
-  // 🔥 CREATE / UPDATE
+  // 🔥 CREATE / UPDATE logic
   for (const [subjectComponentId, assignment] of assignmentMap) {
     const existing = classroomMap.get(subjectComponentId);
 
     if (!existing) {
+      // Generate unique code for new classroom
+      const joinCode = await generateUniqueJoinCode(Classroom, session);
+
       classroomsToInsert.push({
         sectionId,
         subjectComponentId,
         academicYearId,
         semesterNumber,
+        joinCode, // Set the unique code here
         status: 'active'
       });
     } else if (existing.status !== 'active') {
@@ -67,13 +85,12 @@ const fastSyncClassrooms = async ({
     }
   }
 
-  // 🔥 Handle New Classrooms and their Default Topics
+  // Handle New Classrooms and Default Topics
   if (classroomsToInsert.length) {
     const newClassrooms = await Classroom.insertMany(classroomsToInsert, {
       session
     });
 
-    // Create default "No Topic" for each newly created classroom
     const defaultTopics = newClassrooms.map((classroom) => ({
       classroomId: classroom._id,
       name: 'No Topic',
@@ -85,52 +102,61 @@ const fastSyncClassrooms = async ({
     }
   }
 
+  // Bulk update existing classroom statuses
   if (classroomUpdates.length) {
     await Classroom.bulkWrite(classroomUpdates, { session });
   }
 
-  // 🔥 REFETCH
+  // REFETCH to sync members
   const finalClassrooms = await Classroom.find({
     sectionId,
     academicYearId,
     semesterNumber
   }).session(session);
-
   const finalMap = new Map(
     finalClassrooms.map((c) => [c.subjectComponentId.toString(), c])
   );
 
-  // 🔥 MEMBER BULK OPS
+  // Faculty mapping to User IDs
+  const allFacultyDocumentIds = [
+    ...new Set(assignments.flatMap((a) => a.facultyIds))
+  ];
+  const faculties = await Faculty.find({ _id: { $in: allFacultyDocumentIds } })
+    .select('userId')
+    .session(session);
+  const facultyToUserMap = new Map(
+    faculties.map((f) => [f._id.toString(), f.userId.toString()])
+  );
+
   const memberOps = [];
 
   for (const [subjectComponentId, assignment] of assignmentMap) {
     const classroom = finalMap.get(subjectComponentId);
 
     assignment.facultyIds.forEach((fid) => {
-      memberOps.push({
-        updateOne: {
-          filter: { classroomId: classroom._id, userId: fid },
-          update: {
-            $set: { role: 'faculty', status: 'active' }
-          },
-          upsert: true
-        }
-      });
+      const actualUserId = facultyToUserMap.get(fid.toString());
+      if (actualUserId) {
+        memberOps.push({
+          updateOne: {
+            filter: { classroomId: classroom._id, userId: actualUserId },
+            update: { $set: { role: 'FACULTY', status: 'active' } },
+            upsert: true
+          }
+        });
+      }
     });
   }
 
-  // 🔥 REMOVE OLD FACULTY
+  // Remove old faculty assignments
   for (const [subjectComponentId, classroom] of finalMap) {
     const assignment = assignmentMap.get(subjectComponentId);
-
     if (!assignment) {
       memberOps.push({
         updateMany: {
-          filter: { classroomId: classroom._id, role: 'faculty' },
+          filter: { classroomId: classroom._id, role: 'FACULTY' },
           update: { status: 'removed' }
         }
       });
-
       classroomUpdates.push({
         updateOne: {
           filter: { _id: classroom._id },
@@ -140,13 +166,9 @@ const fastSyncClassrooms = async ({
     }
   }
 
-  if (memberOps.length) {
-    await ClassroomMember.bulkWrite(memberOps, { session });
-  }
-
-  if (classroomUpdates.length) {
+  if (memberOps.length) await ClassroomMember.bulkWrite(memberOps, { session });
+  if (classroomUpdates.length)
     await Classroom.bulkWrite(classroomUpdates, { session });
-  }
 };
 
 export const createFacultyAssignment = catchAsync(async (req, res, next) => {

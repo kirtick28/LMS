@@ -1,5 +1,6 @@
 import express from 'express';
 import classroomPostRouter from './classroomPost.routes.js';
+import classroomMemberRouter from './classroomMember.routes.js';
 import {
   getClassrooms,
   getClassroomById,
@@ -7,22 +8,28 @@ import {
 } from '../controllers/classroom.controller.js';
 import { protect, authorize } from '../middlewares/auth.middleware.js';
 
-const router = express.Router();
+const router = express.Router({ mergeParams: true });
 
-router.use('/:classroomId/posts', classroomPostRouter);
-
+// List classrooms
 router.get(
   '/',
   protect,
   authorize('ADMIN', 'FACULTY', 'HOD', 'STUDENT'),
   getClassrooms
 );
+
+// Child Routers (Nested under :classroomId)
+router.use('/:classroomId/posts', classroomPostRouter);
+router.use('/:classroomId/members', classroomMemberRouter);
+
+// Specific Classroom Actions
 router.get(
   '/:id',
   protect,
   authorize('ADMIN', 'FACULTY', 'STUDENT', 'HOD'),
   getClassroomById
 );
+
 router.put(
   '/:id',
   protect,

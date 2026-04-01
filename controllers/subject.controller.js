@@ -81,7 +81,7 @@ const createSubjectComponents = async (
     case 'P':
       components.push({
         subjectId: subject._id,
-        name: `${baseName} Laboratory`,
+        name: baseName,
         shortName: `${short}`,
         componentType: 'PRACTICAL',
         hours: practicalHours || 0
@@ -91,7 +91,7 @@ const createSubjectComponents = async (
     case 'PJ':
       components.push({
         subjectId: subject._id,
-        name: `${baseName} Project`,
+        name: baseName,
         shortName: `${short}`,
         componentType: 'PROJECT',
         hours: projectHours || 0

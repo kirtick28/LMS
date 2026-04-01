@@ -9,9 +9,9 @@ const classroomSchema = new mongoose.Schema(
       required: true,
       index: true
     },
-    subjectComponentId: {
+    subjectId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'SubjectComponent',
+      ref: 'Subject',
       required: true
     },
     academicYearId: {
@@ -47,7 +47,7 @@ const classroomSchema = new mongoose.Schema(
 );
 
 classroomSchema.index(
-  { sectionId: 1, subjectComponentId: 1, academicYearId: 1, semesterNumber: 1 },
+  { sectionId: 1, subjectId: 1, academicYearId: 1, semesterNumber: 1 },
   { unique: true }
 );
 

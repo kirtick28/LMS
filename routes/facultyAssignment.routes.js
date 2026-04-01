@@ -1,6 +1,6 @@
 import express from 'express';
 import {
-  createFacultyAssignment,
+  manageFacultyAssignments,
   getAllFacultyAssignments,
   getFacultyAssignmentById,
   getAcademicStructure
@@ -8,7 +8,7 @@ import {
 import { protect, authorize } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
-router.post('/', protect, authorize('ADMIN', 'HOD'), createFacultyAssignment);
+router.post('/', protect, authorize('ADMIN', 'HOD'), manageFacultyAssignments);
 router.get('/', protect, getAllFacultyAssignments);
 router.get(
   '/academic-structure/:departmentId',

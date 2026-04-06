@@ -61,18 +61,11 @@ const timetableSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/*
-Only one timetable per
-section + academicYear + semester
-*/
 timetableSchema.index(
   { sectionId: 1, academicYearId: 1, semesterNumber: 1 },
   { unique: true }
 );
 
-/*
-Fast lookup when loading timetable
-*/
 timetableSchema.index({ sectionId: 1, semesterNumber: 1 });
 
 export default mongoose.model('Timetable', timetableSchema);

@@ -18,17 +18,28 @@ import Topic from '../models/Topic.js';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
+import crypto from 'crypto';
+
 const generateUniqueJoinCode = async (ClassroomModel, session) => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const codeLength = 6;
+
   let isUnique = false;
   let code = '';
 
   while (!isUnique) {
-    code = uuidv4().split('-')[0].toUpperCase();
+    const randomBytes = crypto.randomBytes(codeLength);
+    code = '';
+    for (let i = 0; i < codeLength; i++) {
+      const randomIndex = randomBytes[i] % chars.length;
+      code += chars[randomIndex];
+    }
     const existing = await ClassroomModel.findOne({ joinCode: code }).session(
       session
     );
     if (!existing) isUnique = true;
   }
+
   return code;
 };
 
@@ -111,12 +122,13 @@ const syncClassroomsAndMembers = async ({
 
   const toCreate = subjectIds.filter((sid) => !existingClassroomMap.has(sid));
   if (toCreate.length) {
+    const joinCode = await generateUniqueJoinCode(Classroom, session);
     const newRooms = toCreate.map((sid) => ({
       sectionId,
       subjectId: sid,
       academicYearId,
       semesterNumber,
-      joinCode: uuidv4().split('-')[0].toUpperCase(),
+      joinCode: joinCode || uuidv4().split('-')[0].toUpperCase(),
       status: 'active'
     }));
     const inserted = await Classroom.insertMany(newRooms, { session });

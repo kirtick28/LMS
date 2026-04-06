@@ -36,27 +36,12 @@ const timetableEntrySchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/*
-Prevent two entries occupying same slot
-*/
 timetableEntrySchema.index(
   { timetableId: 1, day: 1, slotOrder: 1 },
   { unique: true }
 );
-
-/*
-Fast rendering of timetable
-*/
 timetableEntrySchema.index({ timetableId: 1, day: 1 });
-
-/*
-Faculty clash detection
-*/
 timetableEntrySchema.index({ facultyAssignmentId: 1, day: 1 });
-
-/*
-Additional hour lookup
-*/
 timetableEntrySchema.index({ additionalHourId: 1 });
 
 export default mongoose.model('TimetableEntry', timetableEntrySchema);

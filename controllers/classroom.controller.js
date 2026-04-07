@@ -78,8 +78,6 @@ export const getClassrooms = catchAsync(async (req, res, next) => {
       status: 'active'
     }).select('classroomId');
 
-    console.log(memberships);
-
     const classroomIds = memberships.map((m) => m.classroomId);
     if (classroomIds.length === 0) {
       return res.status(200).json({

@@ -244,7 +244,12 @@ export const inviteMembers = catchAsync(async (req, res, next) => {
   session.startTransaction();
 
   try {
-    const classroom = await Classroom.findById(classroomId).session(session);
+    const classroom = await Classroom.findById(classroomId)
+      .populate({
+        path: 'subjectId',
+        select: 'name code'
+      })
+      .session(session);
     if (!classroom) throw new AppError('Classroom not found', 404);
 
     const invitationData = [];
@@ -286,14 +291,14 @@ export const inviteMembers = catchAsync(async (req, res, next) => {
         invitedBy: req.user._id,
         status: 'pending'
       });
-      console.log(classroom);
-      const inviteUrl = `https://lms.sece.ac.in/accept-invite?token=${token}`;
-      const message = generateHTMLContent(classroom.name, inviteUrl);
+
+      const inviteUrl = `${process.env.FRONTEND_URL}/${role.toLowerCase()}/invitation?classroomId=${classroomId}&token=${token}`;
+      const message = generateHTMLContent(classroom.subjectId.name, inviteUrl);
 
       emailPromises.push(
         sendEmail({
           to: userAccount.email,
-          subject: `Classroom Invitation - ${classroom.name}`,
+          subject: `Classroom Invitation - ${classroom.subjectId.name}`,
           html: message
         })
       );

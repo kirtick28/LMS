@@ -11,11 +11,13 @@ import { protect, authorize } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
-router.post('/', protect, authorize('ADMIN'), createBatchProgram);
-router.get('/', protect, getAllBatchPrograms);
-router.get('/:batchId/:departmentId', protect, getBatchProgramDetailsByParams);
-router.get('/:id', protect, getBatchProgramById);
-router.put('/:id', protect, authorize('ADMIN'), updateBatchProgram);
-router.delete('/:id', protect, authorize('ADMIN'), deleteBatchProgram);
+router.use(protect);
+
+router.post('/', authorize('ADMIN'), createBatchProgram);
+router.get('/', getAllBatchPrograms);
+router.get('/:batchId/:departmentId', getBatchProgramDetailsByParams);
+router.get('/:id', getBatchProgramById);
+router.put('/:id', authorize('ADMIN'), updateBatchProgram);
+router.delete('/:id', authorize('ADMIN'), deleteBatchProgram);
 
 export default router;

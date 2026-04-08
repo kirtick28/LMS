@@ -14,18 +14,19 @@ import { protect, authorize } from '../middlewares/auth.middleware.js';
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-router.post('/', protect, authorize('ADMIN'), createSubject);
+router.use(protect);
+
+router.post('/', authorize('ADMIN'), createSubject);
 router.post(
   '/upload/:departmentId/:regulationId',
-  protect,
   authorize('ADMIN'),
   upload.single('file'),
   uploadMultipleSubjects
 );
-router.get('/', protect, getAllSubjects);
-router.get('/by-semester', protect, getSubjectsForSemester);
-router.get('/:id', protect, getSubjectById);
-router.put('/:id', protect, authorize('ADMIN'), updateSubject);
-router.delete('/:id', protect, authorize('ADMIN'), deleteSubject);
+router.get('/', getAllSubjects);
+router.get('/by-semester', getSubjectsForSemester);
+router.get('/:id', getSubjectById);
+router.put('/:id', authorize('ADMIN'), updateSubject);
+router.delete('/:id', authorize('ADMIN'), deleteSubject);
 
 export default router;

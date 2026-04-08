@@ -11,12 +11,13 @@ import { protect, authorize } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
-router.post('/', protect, authorize('HOD'), saveTimetableFull);
-router.get('/', protect, authorize('HOD'), getTimetableFull);
-router.get('/components', protect, authorize('HOD'), getComponents);
+router.use(protect);
+
+router.post('/', authorize('HOD'), saveTimetableFull);
+router.get('/', authorize('HOD'), getTimetableFull);
+router.get('/components', authorize('HOD'), getComponents);
 router.get(
   '/faculty',
-  protect,
   authorize('HOD', 'ADMIN', 'FACULTY'),
   getFacultyTimetable
 );

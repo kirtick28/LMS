@@ -8,14 +8,16 @@ import {
 import { protect, authorize } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
-router.post('/', protect, authorize('ADMIN', 'HOD'), manageFacultyAssignments);
-router.get('/', protect, getAllFacultyAssignments);
+
+router.use(protect);
+
+router.post('/', authorize('ADMIN', 'HOD'), manageFacultyAssignments);
+router.get('/', getAllFacultyAssignments);
 router.get(
   '/academic-structure/:departmentId',
-  protect,
   authorize('HOD', 'ADMIN'),
   getAcademicStructure
 );
-router.get('/:id', protect, getFacultyAssignmentById);
+router.get('/:id', getFacultyAssignmentById);
 
 export default router;

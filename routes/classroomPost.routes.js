@@ -17,22 +17,16 @@ import { protect, authorize } from '../middlewares/auth.middleware.js';
 
 const router = express.Router({ mergeParams: true });
 
-// READ ops
-router.get(
-  '/',
-  protect,
-  authorize('ADMIN', 'FACULTY', 'HOD', 'STUDENT'),
-  getClasswork
-);
+router.use(protect);
+
+router.get('/', authorize('ADMIN', 'FACULTY', 'HOD', 'STUDENT'), getClasswork);
 router.get(
   '/stream',
-  protect,
   authorize('ADMIN', 'FACULTY', 'HOD', 'STUDENT'),
   getStream
 );
 router.get(
   '/topic',
-  protect,
   authorize('ADMIN', 'FACULTY', 'HOD', 'STUDENT'),
   getTopics
 );
@@ -41,27 +35,19 @@ router.get(
 router.post(
   '/',
   upload.single('file'),
-  protect,
   authorize('ADMIN', 'FACULTY', 'HOD'),
   createPost
 );
-router.post(
-  '/topic',
-  protect,
-  authorize('ADMIN', 'FACULTY', 'HOD'),
-  createTopic
-);
+router.post('/topic', authorize('ADMIN', 'FACULTY', 'HOD'), createTopic);
 
 // COMMENTS
 router.post(
   '/:postId/comments',
-  protect,
   authorize('ADMIN', 'FACULTY', 'HOD', 'STUDENT'),
   addComment
 );
 router.delete(
   '/comments/:commentId',
-  protect,
   authorize('ADMIN', 'FACULTY', 'HOD', 'STUDENT'),
   deleteComment
 );
@@ -69,13 +55,11 @@ router.delete(
 // TOPIC management (Static /topic must come before generic /:type)
 router.patch(
   '/topic/:topicId',
-  protect,
   authorize('ADMIN', 'FACULTY', 'HOD'),
   updateTopic
 );
 router.delete(
   '/topic/:topicId',
-  protect,
   authorize('ADMIN', 'FACULTY', 'HOD'),
   deleteTopic
 );
@@ -84,13 +68,11 @@ router.delete(
 router.patch(
   '/:type/:postId',
   upload.single('file'),
-  protect,
   authorize('ADMIN', 'FACULTY', 'HOD'),
   updatePost
 );
 router.delete(
   '/:type/:postId',
-  protect,
   authorize('ADMIN', 'FACULTY', 'HOD'),
   deletePost
 );

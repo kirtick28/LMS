@@ -16,25 +16,21 @@ import { protect, authorize } from '../middlewares/auth.middleware.js';
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-router.post('/', protect, authorize('ADMIN'), addStudent);
-router.put('/:id', protect, authorize('ADMIN'), updateStudent);
-router.delete('/:id', protect, authorize('ADMIN'), deleteStudent);
-router.get('/', protect, getAllStudents);
+router.use(protect);
+
+router.post('/', authorize('ADMIN'), addStudent);
+router.put('/:id', authorize('ADMIN'), updateStudent);
+router.delete('/:id', authorize('ADMIN'), deleteStudent);
+router.get('/', getAllStudents);
 router.post(
   '/upload',
-  protect,
   authorize('ADMIN'),
   upload.single('file'),
   uploadMultipleStudents
 );
-router.get('/stats/year-wise', protect, getStudentStats);
-router.get('/stats/department-wise', protect, getStudentDepartmentWise);
-router.post('/semester-shift', protect, authorize('ADMIN'), semesterShift);
-router.get(
-  '/semester-shift-info',
-  protect,
-  authorize('ADMIN'),
-  getSemesterShiftInfo
-);
+router.get('/stats/year-wise', getStudentStats);
+router.get('/stats/department-wise', getStudentDepartmentWise);
+router.post('/semester-shift', authorize('ADMIN'), semesterShift);
+router.get('/semester-shift-info', authorize('ADMIN'), getSemesterShiftInfo);
 
 export default router;

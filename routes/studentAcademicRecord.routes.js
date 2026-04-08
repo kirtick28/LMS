@@ -10,10 +10,12 @@ import { protect, authorize } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
-router.post('/', protect, authorize('ADMIN'), createStudentAcademicRecord);
-router.get('/', protect, getAllStudentAcademicRecords);
-router.get('/:id', protect, getStudentAcademicRecordById);
-router.put('/:id', protect, authorize('ADMIN'), updateStudentAcademicRecord);
-router.delete('/:id', protect, authorize('ADMIN'), deleteStudentAcademicRecord);
+router.use(protect);
+
+router.post('/', authorize('ADMIN'), createStudentAcademicRecord);
+router.get('/', getAllStudentAcademicRecords);
+router.get('/:id', getStudentAcademicRecordById);
+router.put('/:id', authorize('ADMIN'), updateStudentAcademicRecord);
+router.delete('/:id', authorize('ADMIN'), deleteStudentAcademicRecord);
 
 export default router;

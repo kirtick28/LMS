@@ -12,17 +12,18 @@ import { protect, authorize } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
-router.post('/', protect, authorize('ADMIN'), createSection);
-router.get('/', protect, getAllSections);
+router.use(router);
+
+router.post('/', authorize('ADMIN'), createSection);
+router.get('/', getAllSections);
 router.get(
   '/current-year/:departmentId',
-  protect,
   authorize('HOD'),
   getCurrentYearsSections
 );
-router.get('/:id', protect, getSectionById);
-router.put('/:id', protect, authorize('ADMIN'), updateSection);
-router.delete('/:id', protect, authorize('ADMIN'), deleteSection);
-router.patch('/reallocate', protect, authorize('HOD'), moveStudents);
+router.get('/:id', getSectionById);
+router.put('/:id', authorize('ADMIN'), updateSection);
+router.delete('/:id', authorize('ADMIN'), deleteSection);
+router.patch('/reallocate', authorize('HOD'), moveStudents);
 
 export default router;

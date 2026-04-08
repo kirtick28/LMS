@@ -10,10 +10,12 @@ import { protect, authorize } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
-router.post('/', protect, authorize('ADMIN'), createRegulation);
-router.get('/', protect, getAllRegulations);
-router.get('/:id', protect, getRegulationById);
-router.put('/:id', protect, authorize('ADMIN'), updateRegulation);
-router.delete('/:id', protect, authorize('ADMIN'), deleteRegulation);
+router.use(protect);
+
+router.post('/', authorize('ADMIN'), createRegulation);
+router.get('/', getAllRegulations);
+router.get('/:id', getRegulationById);
+router.put('/:id', authorize('ADMIN'), updateRegulation);
+router.delete('/:id', authorize('ADMIN'), deleteRegulation);
 
 export default router;

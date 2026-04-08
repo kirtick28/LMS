@@ -1,18 +1,11 @@
 import mongoose from 'mongoose';
-const { Schema } = mongoose;
 
-const mappingItemSchema = new Schema(
-  {
-    justification: { type: String, trim: true, default: '' },
-    credit: { type: Number, default: 0, min: 0, max: 3 } // Usually CO-PO maps are 0, 1, 2, or 3
-  },
-  { _id: false }
-);
+const { Schema } = mongoose;
 
 const courseOutcomeSchema = new Schema(
   {
-    unit: { type: String, required: true, trim: true },
-    statement: { type: String, default: '', trim: true },
+    unit: { type: String, required: true },
+    statement: { type: String, required: true, trim: true },
     rtbl: {
       type: String,
       enum: ['K1', 'K2', 'K3', 'K4', 'K5', 'K6'],
@@ -22,23 +15,39 @@ const courseOutcomeSchema = new Schema(
   { _id: false }
 );
 
-const courseDetailsSchema = new Schema(
+const mappingItemSchema = new Schema(
   {
-    courseType: {
-      type: String,
-      enum: ['T', 'P', 'TP', 'TPJ', 'PJ', 'I'],
-      required: true
-    },
-    preRequisites: { type: String, default: '' },
-    coRequisites: { type: String, default: '' },
-    courseDescription: { type: String, default: '' },
-    courseObjectives: { type: String, default: '' },
-    courseOutcomes: { type: [courseOutcomeSchema], default: [] }
+    justification: { type: String, trim: true, default: '' },
+    credit: { type: Number, min: 0, max: 3, default: 0 }
   },
   { _id: false }
 );
 
-const theoryTopicSchema = new Schema(
+const coPoMappingSchema = new Schema(
+  {
+    coId: { type: String, required: true },
+    mappings: {
+      PO1: { type: mappingItemSchema, default: () => ({}) },
+      PO2: { type: mappingItemSchema, default: () => ({}) },
+      PO3: { type: mappingItemSchema, default: () => ({}) },
+      PO4: { type: mappingItemSchema, default: () => ({}) },
+      PO5: { type: mappingItemSchema, default: () => ({}) },
+      PO6: { type: mappingItemSchema, default: () => ({}) },
+      PO7: { type: mappingItemSchema, default: () => ({}) },
+      PO8: { type: mappingItemSchema, default: () => ({}) },
+      PO9: { type: mappingItemSchema, default: () => ({}) },
+      PO10: { type: mappingItemSchema, default: () => ({}) },
+      PO11: { type: mappingItemSchema, default: () => ({}) },
+      PO12: { type: mappingItemSchema, default: () => ({}) },
+      PSO1: { type: mappingItemSchema, default: () => ({}) },
+      PSO2: { type: mappingItemSchema, default: () => ({}) },
+      PSO3: { type: mappingItemSchema, default: () => ({}) }
+    }
+  },
+  { _id: false }
+);
+
+const topicSchema = new Schema(
   {
     topicName: { type: String, required: true, trim: true },
     teachingLanguage: {
@@ -46,123 +55,134 @@ const theoryTopicSchema = new Schema(
       enum: ['English', 'Tamil'],
       default: 'English'
     },
-    date: { type: Date, required: true },
+    proposedDate: { type: Date, required: true },
+    actualDate: { type: Date },
     hours: { type: Number, required: true },
-    teachingAid: { type: String, required: true, trim: true },
-    referenceBook: { type: String, required: true, trim: true },
-    createdAt: { type: Date, default: Date.now }
+    teachingAid: { type: String, required: true },
+    reference: { type: String, required: true }
   },
   { _id: false }
 );
 
-const theoryUnitSchema = new Schema(
+const unitSchema = new Schema(
   {
-    title: { type: String, default: '' },
-    topics: { type: [theoryTopicSchema], default: [] }
+    unitNumber: { type: Number, required: true },
+    title: { type: String, required: true, trim: true },
+    topics: [topicSchema]
   },
   { _id: false }
 );
 
-const theoryPlannerSchema = new Schema(
+const experimentSchema = new Schema(
   {
-    UNIT1: { type: theoryUnitSchema, default: () => ({}) },
-    UNIT2: { type: theoryUnitSchema, default: () => ({}) },
-    UNIT3: { type: theoryUnitSchema, default: () => ({}) },
-    UNIT4: { type: theoryUnitSchema, default: () => ({}) },
-    UNIT5: { type: theoryUnitSchema, default: () => ({}) },
-    OTHERS: { type: theoryUnitSchema, default: () => ({}) }
+    experimentNumber: { type: Number, required: true },
+    title: { type: String, required: true },
+    proposedDate: { type: Date, required: true },
+    actualDate: { type: Date },
+    hours: { type: Number, required: true },
+    coMapping: [String]
   },
   { _id: false }
 );
 
-const coPoSchema = new Schema(
+const projectReviewSchema = new Schema(
   {
-    PO0: { type: mappingItemSchema, default: () => ({}) },
-    PO1: { type: mappingItemSchema, default: () => ({}) },
-    PO2: { type: mappingItemSchema, default: () => ({}) },
-    PO3: { type: mappingItemSchema, default: () => ({}) },
-    PO4: { type: mappingItemSchema, default: () => ({}) },
-    PO5: { type: mappingItemSchema, default: () => ({}) },
-    PO6: { type: mappingItemSchema, default: () => ({}) },
-    PO7: { type: mappingItemSchema, default: () => ({}) },
-    PO8: { type: mappingItemSchema, default: () => ({}) },
-    PO9: { type: mappingItemSchema, default: () => ({}) },
-    PO10: { type: mappingItemSchema, default: () => ({}) },
-    PO11: { type: mappingItemSchema, default: () => ({}) },
-    PSO1: { type: mappingItemSchema, default: () => ({}) },
-    PSO2: { type: mappingItemSchema, default: () => ({}) },
-    PSO3: { type: mappingItemSchema, default: () => ({}) }
+    reviewNumber: { type: Number, required: true },
+    description: { type: String, required: true },
+    proposedDate: { type: Date, required: true },
+    actualDate: { type: Date }
   },
   { _id: false }
 );
 
-const coPoMappingSchema = new Schema(
+const assessmentSchema = new Schema(
   {
-    CO1: { type: coPoSchema, default: () => ({}) },
-    CO2: { type: coPoSchema, default: () => ({}) },
-    CO3: { type: coPoSchema, default: () => ({}) },
-    CO4: { type: coPoSchema, default: () => ({}) },
-    CO5: { type: coPoSchema, default: () => ({}) }
-  },
-  { _id: false }
-);
-
-const referencesSchema = new Schema(
-  {
-    textBooks: { type: [String], default: [] },
-    referenceBooks: { type: [String], default: [] },
-    journals: { type: [String], default: [] },
-    webResources: { type: [String], default: [] },
-    moocCourses: [
-      {
-        platform: { type: String, trim: true, default: '' },
-        courseName: { type: String, trim: true, default: '' },
-        _id: false
-      }
-    ],
-    projects: { type: [String], default: [] },
-    termWork: {
-      enabled: { type: Boolean, default: false },
-      activity: { type: [String], default: [] }
-    },
-    gapIdentification: {
-      enabled: { type: Boolean, default: false },
-      entry: { type: [String], default: [] }
-    }
+    assessmentName: { type: String, required: true }, // e.g., CIA I, CIA II
+    proposedDate: { type: Date, required: true },
+    actualDate: { type: Date }
   },
   { _id: false }
 );
 
 const coursePlanSchema = new Schema(
   {
-    sectionId: {
-      type: Schema.Types.ObjectId,
-      ref: 'Section',
-      required: true,
-      index: true
-    },
     subjectId: {
       type: Schema.Types.ObjectId,
       ref: 'Subject',
       required: true,
       index: true
     },
-    facultyId: {
+    sectionId: {
       type: Schema.Types.ObjectId,
-      ref: 'Faculty',
+      ref: 'Section',
       required: true,
       index: true
     },
-    academicYear: { type: String, trim: true },
-    semester: { type: Number, min: 1, max: 8 },
-    courseDetails: { type: courseDetailsSchema, default: () => ({}) },
-    coPoMapping: { type: coPoMappingSchema, default: () => ({}) },
-    references: { type: referencesSchema, default: () => ({}) },
-    theoryPlanner: { type: theoryPlannerSchema, default: () => ({}) }
+    academicYearId: {
+      type: Schema.Types.ObjectId,
+      ref: 'AcademicYear',
+      required: true
+    },
+    faculties: [
+      {
+        facultyId: {
+          type: Schema.Types.ObjectId,
+          ref: 'Faculty',
+          required: true
+        },
+        isPrimary: { type: Boolean, default: false }
+      }
+    ],
+
+    courseDetails: {
+      description: { type: String, trim: true },
+      objectives: [{ type: String, trim: true }],
+      preRequisites: { type: String, trim: true },
+      outcomes: [courseOutcomeSchema]
+    },
+
+    coPoMapping: [coPoMappingSchema],
+
+    planners: {
+      theory: [unitSchema],
+      lab: [experimentSchema],
+      project: [projectReviewSchema]
+    },
+
+    assessments: [assessmentSchema],
+
+    references: {
+      textBooks: [String],
+      referenceBooks: [String],
+      journals: [String],
+      webResources: [String],
+      moocCourses: [
+        {
+          platform: String,
+          courseName: String
+        }
+      ],
+      gapsIdentified: [
+        {
+          gap: String,
+          actionTaken: String
+        }
+      ]
+    },
+
+    status: {
+      type: String,
+      enum: ['Draft', 'Submitted', 'Approved', 'Returned'],
+      default: 'Draft'
+    }
   },
   { timestamps: true }
 );
 
-coursePlanSchema.index({ sectionId: 1, subjectId: 1 }, { unique: true });
+coursePlanSchema.index(
+  { subjectId: 1, sectionId: 1, academicYearId: 1 },
+  { unique: true }
+);
 
-export default mongoose.model('CoursePlan', coursePlanSchema);
+export default mongoose.models.CoursePlan ||
+  mongoose.model('CoursePlan', coursePlanSchema);

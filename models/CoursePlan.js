@@ -118,7 +118,7 @@ const theorySchema = new Schema(
       type: Schema.Types.ObjectId,
       required: true
     },
-    unitTitle: String, // derived from CO (optional override)
+    unitTitle: String,
     topics: [topicSchema]
   },
   { _id: true }

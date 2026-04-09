@@ -26,6 +26,7 @@ import facultyAssignmentRoutes from './routes/facultyAssignment.routes.js';
 import studentAcademicRecordRoutes from './routes/studentAcademicRecord.routes.js';
 import timeTableRoutes from './routes/timeTable.routes.js';
 import classroomRoutes from './routes/classroom.routes.js';
+import coursePlan from './routes/coursePlan.routes.js';
 import globalErrorHandler from './middlewares/error.middleware.js';
 import AppError from './utils/AppError.js';
 
@@ -61,6 +62,7 @@ app.use('/api/assign-faculty', facultyAssignmentRoutes);
 app.use('/api/student-academic-records', studentAcademicRecordRoutes);
 app.use('/api/timetable', timeTableRoutes);
 app.use('/api/classroom', classroomRoutes);
+app.use('/api/coursePlan', coursePlan);
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

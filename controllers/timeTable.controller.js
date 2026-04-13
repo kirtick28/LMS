@@ -1,13 +1,64 @@
-import mongoose from 'mongoose';
-import Timetable from '../models/Timetable.js';
-import TimetableEntry from '../models/TimetableEntry.js';
+import AcademicCalendar from '../models/AcademicCalendar.js';
+import AcademicYear from '../models/AcademicYear.js';
 import AdditionalHour from '../models/AdditionalHour.js';
 import FacultyAssignment from '../models/FacultyAssignment.js';
 import Section from '../models/Section.js';
-import AcademicYear from '../models/AcademicYear.js';
-
+import Timetable from '../models/Timetable.js';
+import TimetableEntry from '../models/TimetableEntry.js';
 import catchAsync from '../utils/catchAsync.js';
 import AppError from '../utils/AppError.js';
+import mongoose from 'mongoose';
+
+export const getTimetableEntriesForAttendance = catchAsync(
+  async (req, res, next) => {
+    const { sectionId, academicYearId, semesterNumber, facultyAssignmentId } =
+      req.query;
+
+    if (
+      !sectionId ||
+      !academicYearId ||
+      !semesterNumber ||
+      !facultyAssignmentId
+    ) {
+      return next(
+        new AppError('Missing required parameters for attendance fetch', 400)
+      );
+    }
+
+    // 1. Get the current day in 'MON', 'TUE', etc. format
+    const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const todayName = days[new Date().getDay()];
+
+    // 2. Find the relevant Timetable
+    const timetable = await Timetable.findOne({
+      sectionId,
+      academicYearId,
+      semesterNumber
+    });
+
+    if (!timetable) {
+      return res
+        .status(200)
+        .json({ success: true, data: { slots: [], entries: [] } });
+    }
+
+    // 3. Find Entries for this specific FacultyAssignment/Subject on Today
+    const entries = await TimetableEntry.find({
+      timetableId: timetable._id,
+      day: todayName,
+      facultyAssignmentId
+    }).sort({ slotOrder: 1 });
+
+    // Return empty arrays if no entries exist for the specific subject today
+    res.status(200).json({
+      success: true,
+      data: {
+        slots: timetable.slots, // Provide slot timings for the UI
+        entries: entries || []
+      }
+    });
+  }
+);
 
 export const getTimetableFull = catchAsync(async (req, res, next) => {
   const { sectionId, academicYearId, semesterNumber } = req.query;

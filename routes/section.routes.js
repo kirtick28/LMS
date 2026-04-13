@@ -12,7 +12,7 @@ import { protect, authorize } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
-router.use(router);
+router.use(protect);
 
 router.post('/', authorize('ADMIN'), createSection);
 router.get('/', getAllSections);

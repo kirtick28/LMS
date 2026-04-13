@@ -29,6 +29,8 @@ import classroomRoutes from './routes/classroom.routes.js';
 import coursePlan from './routes/coursePlan.routes.js';
 import globalErrorHandler from './middlewares/error.middleware.js';
 import AppError from './utils/AppError.js';
+import academicCalendarRoutes from './routes/academicCalendar.routes.js';
+import attendanceRoutes from './routes/attendance.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -63,12 +65,14 @@ app.use('/api/student-academic-records', studentAcademicRecordRoutes);
 app.use('/api/timetable', timeTableRoutes);
 app.use('/api/classroom', classroomRoutes);
 app.use('/api/coursePlan', coursePlan);
+app.use('/api/academic-calendar', academicCalendarRoutes);
+app.use('/api/attendance', attendanceRoutes);
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.all('/{*any}', (req, res, next) => {
+app.use((req, res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server`, 404));
 });
 

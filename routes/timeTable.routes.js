@@ -1,16 +1,14 @@
 import express from 'express';
-
 import {
   getComponents,
   getTimetableFull,
   saveTimetableFull,
-  getFacultyTimetable
+  getFacultyTimetable,
+  getTimetableEntriesForAttendance
 } from '../controllers/timeTable.controller.js';
-
 import { protect, authorize } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
-
 router.use(protect);
 
 router.post('/', authorize('HOD'), saveTimetableFull);
@@ -20,6 +18,13 @@ router.get(
   '/faculty',
   authorize('HOD', 'ADMIN', 'FACULTY'),
   getFacultyTimetable
+);
+
+// New endpoint for attendance timetable entries
+router.get(
+  '/attendance-entries',
+  authorize('HOD', 'ADMIN', 'FACULTY'),
+  getTimetableEntriesForAttendance
 );
 
 export default router;

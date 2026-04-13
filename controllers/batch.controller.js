@@ -1,63 +1,61 @@
 import mongoose from 'mongoose';
 import Batch from '../models/Batch.js';
+import Department from '../models/Department.js';
+import BatchProgram from '../models/BatchProgram.js';
+import Section from '../models/Section.js';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 export const createBatch = async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
-    const { name, startYear, endYear, programDuration, isActive } = req.body;
+    const { name, startYear, endYear, programDuration, regulation, isActive } = req.body;
 
-    if (!startYear) {
-      return res.status(400).json({
-        success: false,
-        message: 'startYear is required',
-        data: {}
-      });
-    }
-
-    const resolvedStartYear = Number(startYear);
-    const resolvedDuration = Number(programDuration) || 4;
-    const resolvedEndYear =
-      Number(endYear) || resolvedStartYear + resolvedDuration;
-
-    if (resolvedStartYear >= resolvedEndYear) {
-      return res.status(400).json({
-        success: false,
-        message: 'endYear must be greater than startYear',
-        data: {}
-      });
-    }
-
-    const existing = await Batch.findOne({
-      startYear: resolvedStartYear,
-      endYear: resolvedEndYear
-    });
-
-    if (existing) {
-      return res.status(409).json({
-        success: false,
-        message: 'Batch already exists for this year range',
-        data: {}
-      });
-    }
-
-    const batchName = name || `${resolvedStartYear}-${resolvedEndYear}`;
-
-    const batch = await Batch.create({
-      name: batchName,
-      startYear: resolvedStartYear,
-      endYear: resolvedEndYear,
-      programDuration: resolvedDuration,
+    const batch = await Batch.create([{
+      name,
+      startYear,
+      endYear,
+      programDuration,
       isActive
-    });
+    }], { session });
 
+    const newBatch = batch[0];
+
+    const departments = await Department.find({}).session(session);
+
+    if (departments.length > 0) {
+      const batchProgramData = departments.map(dept => ({
+        batchId: newBatch._id,
+        departmentId: dept._id,
+        regulationId: regulation
+      }));
+
+      const createdPrograms = await BatchProgram.insertMany(batchProgramData, { session });
+
+      const sectionData = createdPrograms.map(program => ({
+        name: 'UNALLOCATED',
+        batchProgramId: program._id,
+        capacity: 300,
+        isActive: true
+      }));
+
+      await Section.insertMany(sectionData, { session });
+    }
+
+    await session.commitTransaction();
+    
     return res.status(201).json({
       success: true,
-      message: 'Batch created successfully',
-      data: { batch }
+      message: 'Batch and BatchPrograms for all departments created successfully',
+      data: { batch: newBatch }
     });
+
   } catch (error) {
+    await session.abortTransaction();
     return next(error);
+  } finally {
+    session.endSession();
   }
 };
 

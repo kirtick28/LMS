@@ -1,10 +1,10 @@
-import mongoose from 'mongoose';
-import xlsx from 'xlsx';
-import Faculty from '../models/Faculty.js';
-import User from '../models/User.js';
-import Department from '../models/Department.js';
-import AppError from '../utils/AppError.js';
-import FacultyHelper from '../utils/FacultyHelper.js';
+import mongoose from "mongoose";
+import xlsx from "xlsx";
+import Faculty from "../models/Faculty.js";
+import User from "../models/User.js";
+import Department from "../models/Department.js";
+import AppError from "../utils/AppError.js";
+import FacultyHelper from "../utils/FacultyHelper.js";
 
 export const addFaculty = async (req, res, next) => {
   const session = await mongoose.startSession();
@@ -27,24 +27,24 @@ export const addFaculty = async (req, res, next) => {
       reportingManager,
       noticePeriod,
       password,
-      departmentId // directly from body
+      departmentId, // directly from body
     } = req.body;
 
     // Required fields validation
     const requiredFields = [
-      'salutation',
-      'firstName',
-      'lastName',
-      'gender',
-      'dateOfBirth',
-      'email',
-      'primaryPhone',
-      'qualification',
-      'workType',
-      'employeeId',
-      'joiningDate',
-      'designation',
-      'departmentId'
+      "salutation",
+      "firstName",
+      "lastName",
+      "gender",
+      "dateOfBirth",
+      "email",
+      "primaryPhone",
+      "qualification",
+      "workType",
+      "employeeId",
+      "joiningDate",
+      "designation",
+      "departmentId",
     ];
     for (const field of requiredFields) {
       if (!req.body[field]) {
@@ -53,7 +53,7 @@ export const addFaculty = async (req, res, next) => {
         return res.status(400).json({
           success: false,
           message: `${field} is required`,
-          data: {}
+          data: {},
         });
       }
     }
@@ -64,7 +64,7 @@ export const addFaculty = async (req, res, next) => {
     // Check for existing user / faculty within session
     const [existingUser, existingEmployee] = await Promise.all([
       User.findOne({ email: cleanEmail }).session(session),
-      Faculty.findOne({ employeeId: cleanEmployeeId }).session(session)
+      Faculty.findOne({ employeeId: cleanEmployeeId }).session(session),
     ]);
 
     if (existingUser) {
@@ -72,8 +72,8 @@ export const addFaculty = async (req, res, next) => {
       session.endSession();
       return res.status(400).json({
         success: false,
-        message: 'User already exists with this email',
-        data: {}
+        message: "User already exists with this email",
+        data: {},
       });
     }
     if (existingEmployee) {
@@ -81,15 +81,15 @@ export const addFaculty = async (req, res, next) => {
       session.endSession();
       return res.status(400).json({
         success: false,
-        message: 'Faculty already exists with this employeeId',
-        data: {}
+        message: "Faculty already exists with this employeeId",
+        data: {},
       });
     }
 
     // Validate department
     const department = await FacultyHelper.validateDepartmentId(
       departmentId,
-      session
+      session,
     );
 
     // Parse dates
@@ -100,8 +100,8 @@ export const addFaculty = async (req, res, next) => {
       session.endSession();
       return res.status(400).json({
         success: false,
-        message: 'Invalid date format for dateOfBirth or joiningDate',
-        data: {}
+        message: "Invalid date format for dateOfBirth or joiningDate",
+        data: {},
       });
     }
 
@@ -112,8 +112,8 @@ export const addFaculty = async (req, res, next) => {
       session.endSession();
       return res.status(400).json({
         success: false,
-        message: 'primaryPhone must be a valid 10-digit number',
-        data: {}
+        message: "primaryPhone must be a valid 10-digit number",
+        data: {},
       });
     }
     const normSecondaryPhone =
@@ -123,15 +123,15 @@ export const addFaculty = async (req, res, next) => {
     const normDesignation = FacultyHelper.normalizeDesignation(designation);
 
     // Validate workType against enum
-    const validWorkTypes = ['Full Time', 'Contract', 'Part Time', 'Visiting'];
+    const validWorkTypes = ["Full Time", "Contract", "Part Time", "Visiting"];
     const normWorkType = FacultyHelper.normalizeWorkType(workType);
     if (!normWorkType || !validWorkTypes.includes(normWorkType)) {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
         success: false,
-        message: `workType must be one of: ${validWorkTypes.join(', ')}`,
-        data: {}
+        message: `workType must be one of: ${validWorkTypes.join(", ")}`,
+        data: {},
       });
     }
 
@@ -140,13 +140,13 @@ export const addFaculty = async (req, res, next) => {
       [
         {
           email: cleanEmail,
-          password: password || 'sece@123',
-          role: 'FACULTY',
+          password: password || "sece@123",
+          role: "FACULTY",
           gender,
-          dateOfBirth: parsedDOB
-        }
+          dateOfBirth: parsedDOB,
+        },
       ],
-      { session }
+      { session },
     );
 
     // Create faculty
@@ -166,10 +166,10 @@ export const addFaculty = async (req, res, next) => {
           workType: normWorkType,
           joiningDate: parsedJoining,
           reportingManager: reportingManager || null,
-          noticePeriod: FacultyHelper.clean(noticePeriod) || undefined
-        }
+          noticePeriod: FacultyHelper.clean(noticePeriod) || undefined,
+        },
       ],
-      { session }
+      { session },
     );
 
     await session.commitTransaction();
@@ -177,8 +177,8 @@ export const addFaculty = async (req, res, next) => {
 
     return res.status(201).json({
       success: true,
-      message: 'Faculty and User created successfully',
-      data: { faculty }
+      message: "Faculty and User created successfully",
+      data: { faculty },
     });
   } catch (error) {
     if (session.inTransaction()) {
@@ -196,8 +196,8 @@ export const updateFaculty = async (req, res, next) => {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid faculty id',
-        data: {}
+        message: "Invalid faculty id",
+        data: {},
       });
     }
 
@@ -205,17 +205,17 @@ export const updateFaculty = async (req, res, next) => {
     if (!faculty) {
       return res.status(404).json({
         success: false,
-        message: 'Faculty not found',
-        data: {}
+        message: "Faculty not found",
+        data: {},
       });
     }
 
-    const user = await User.findById(faculty.userId).select('+password');
+    const user = await User.findById(faculty.userId).select("+password");
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'Linked user not found',
-        data: {}
+        message: "Linked user not found",
+        data: {},
       });
     }
 
@@ -224,13 +224,13 @@ export const updateFaculty = async (req, res, next) => {
       const updatedEmail = FacultyHelper.clean(req.body.email).toLowerCase();
       const duplicateEmail = await User.findOne({
         email: updatedEmail,
-        _id: { $ne: user._id }
+        _id: { $ne: user._id },
       });
       if (duplicateEmail) {
         return res.status(400).json({
           success: false,
-          message: 'Email already in use',
-          data: {}
+          message: "Email already in use",
+          data: {},
         });
       }
       user.email = updatedEmail;
@@ -244,8 +244,8 @@ export const updateFaculty = async (req, res, next) => {
       if (!parsed) {
         return res.status(400).json({
           success: false,
-          message: 'Invalid dateOfBirth format',
-          data: {}
+          message: "Invalid dateOfBirth format",
+          data: {},
         });
       }
       user.dateOfBirth = parsed;
@@ -256,12 +256,12 @@ export const updateFaculty = async (req, res, next) => {
 
     // Handle faculty simple fields
     const simpleFields = [
-      'salutation',
-      'firstName',
-      'lastName',
-      'qualification',
-      'noticePeriod',
-      'employmentStatus'
+      "salutation",
+      "firstName",
+      "lastName",
+      "qualification",
+      "noticePeriod",
+      "employmentStatus",
     ];
     simpleFields.forEach((field) => {
       if (req.body[field] !== undefined) {
@@ -275,8 +275,8 @@ export const updateFaculty = async (req, res, next) => {
       if (!norm) {
         return res.status(400).json({
           success: false,
-          message: 'primaryPhone must be a valid 10-digit number',
-          data: {}
+          message: "primaryPhone must be a valid 10-digit number",
+          data: {},
         });
       }
       faculty.primaryPhone = norm;
@@ -289,17 +289,17 @@ export const updateFaculty = async (req, res, next) => {
     // Handle employeeId
     if (req.body.employeeId !== undefined) {
       const nextEmployeeId = FacultyHelper.clean(
-        req.body.employeeId
+        req.body.employeeId,
       ).toUpperCase();
       const duplicateEmployee = await Faculty.findOne({
         employeeId: nextEmployeeId,
-        _id: { $ne: faculty._id }
+        _id: { $ne: faculty._id },
       });
       if (duplicateEmployee) {
         return res.status(400).json({
           success: false,
-          message: 'employeeId already in use',
-          data: {}
+          message: "employeeId already in use",
+          data: {},
         });
       }
       faculty.employeeId = nextEmployeeId;
@@ -308,19 +308,19 @@ export const updateFaculty = async (req, res, next) => {
     // Handle designation
     if (req.body.designation !== undefined) {
       faculty.designation = FacultyHelper.normalizeDesignation(
-        req.body.designation
+        req.body.designation,
       );
     }
 
     // Handle workType
     if (req.body.workType !== undefined) {
-      const validWorkTypes = ['Full Time', 'Contract', 'Part Time', 'Visiting'];
+      const validWorkTypes = ["Full Time", "Contract", "Part Time", "Visiting"];
       const normWorkType = FacultyHelper.normalizeWorkType(req.body.workType);
       if (!normWorkType || !validWorkTypes.includes(normWorkType)) {
         return res.status(400).json({
           success: false,
-          message: `workType must be one of: ${validWorkTypes.join(', ')}`,
-          data: {}
+          message: `workType must be one of: ${validWorkTypes.join(", ")}`,
+          data: {},
         });
       }
       faculty.workType = normWorkType;
@@ -332,8 +332,8 @@ export const updateFaculty = async (req, res, next) => {
       if (!parsed) {
         return res.status(400).json({
           success: false,
-          message: 'Invalid joiningDate format',
-          data: {}
+          message: "Invalid joiningDate format",
+          data: {},
         });
       }
       faculty.joiningDate = parsed;
@@ -347,7 +347,7 @@ export const updateFaculty = async (req, res, next) => {
     // Handle department update
     if (req.body.departmentId !== undefined) {
       const department = await FacultyHelper.validateDepartmentId(
-        req.body.departmentId
+        req.body.departmentId,
       );
       faculty.departmentId = department._id;
     }
@@ -356,8 +356,8 @@ export const updateFaculty = async (req, res, next) => {
 
     return res.json({
       success: true,
-      message: 'Faculty updated successfully',
-      data: { faculty }
+      message: "Faculty updated successfully",
+      data: { faculty },
     });
   } catch (error) {
     return next(error);
@@ -371,8 +371,8 @@ export const deleteFaculty = async (req, res, next) => {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid faculty id',
-        data: {}
+        message: "Invalid faculty id",
+        data: {},
       });
     }
 
@@ -380,8 +380,8 @@ export const deleteFaculty = async (req, res, next) => {
     if (!faculty) {
       return res.status(404).json({
         success: false,
-        message: 'Faculty not found',
-        data: {}
+        message: "Faculty not found",
+        data: {},
       });
     }
 
@@ -389,8 +389,8 @@ export const deleteFaculty = async (req, res, next) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'Linked user not found',
-        data: {}
+        message: "Linked user not found",
+        data: {},
       });
     }
 
@@ -399,8 +399,8 @@ export const deleteFaculty = async (req, res, next) => {
 
     return res.json({
       success: true,
-      message: 'Faculty deactivated successfully',
-      data: {}
+      message: "Faculty deactivated successfully",
+      data: {},
     });
   } catch (error) {
     return next(error);
@@ -411,12 +411,12 @@ export const uploadMultipleFaculty = async (req, res, next) => {
   let session;
   try {
     if (!req.file) {
-      return next(new AppError('No file uploaded', 400));
+      return next(new AppError("No file uploaded", 400));
     }
 
     // Read workbook
     const workbook = req.file.buffer
-      ? xlsx.read(req.file.buffer, { type: 'buffer' })
+      ? xlsx.read(req.file.buffer, { type: "buffer" })
       : xlsx.readFile(req.file.path);
 
     const sheetName = workbook.SheetNames[0];
@@ -446,25 +446,25 @@ export const uploadMultipleFaculty = async (req, res, next) => {
 
         // ----- Required field validation -----
         const requiredFields = [
-          'email',
-          'firstName',
-          'lastName',
-          'employeeId',
-          'primaryPhone',
-          'departmentCode',
-          'salutation',
-          'gender',
-          'dateOfBirth',
-          'joiningDate',
-          'qualification',
-          'designation',
-          'workType'
+          "email",
+          "firstName",
+          "lastName",
+          "employeeId",
+          "primaryPhone",
+          "departmentCode",
+          "salutation",
+          "gender",
+          "dateOfBirth",
+          "joiningDate",
+          "qualification",
+          "designation",
+          "workType",
         ];
         for (const field of requiredFields) {
           if (
             payload[field] === undefined ||
             payload[field] === null ||
-            String(payload[field]).trim() === ''
+            String(payload[field]).trim() === ""
           ) {
             throw new Error(`${field} is required`);
           }
@@ -480,7 +480,7 @@ export const uploadMultipleFaculty = async (req, res, next) => {
         // ----- Phone validation -----
         const primaryPhone = FacultyHelper.normalizePhone(payload.primaryPhone);
         if (!primaryPhone) {
-          throw new Error('primaryPhone must be a valid 10-digit number');
+          throw new Error("primaryPhone must be a valid 10-digit number");
         }
         const secondaryPhone =
           FacultyHelper.normalizePhone(payload.secondaryPhone) || null;
@@ -488,28 +488,28 @@ export const uploadMultipleFaculty = async (req, res, next) => {
         // ----- Date validation -----
         const dateOfBirth = FacultyHelper.parseDateValue(payload.dateOfBirth);
         if (!dateOfBirth) {
-          throw new Error('dateOfBirth must be a valid date');
+          throw new Error("dateOfBirth must be a valid date");
         }
         const joiningDate = FacultyHelper.parseDateValue(payload.joiningDate);
         if (!joiningDate) {
-          throw new Error('joiningDate must be a valid date');
+          throw new Error("joiningDate must be a valid date");
         }
 
         // ----- Designation validation -----
         const designation = FacultyHelper.normalizeDesignation(
-          payload.designation
+          payload.designation,
         );
         const validDesignations = [
-          'Professor',
-          'Associate Professor',
-          'Assistant Professor',
-          'HOD',
-          'Dean',
-          'Faculty',
-          'Professor of Practice',
-          'Lab Technician',
-          'Senior Lab Technician',
-          'Department Secretary'
+          "Professor",
+          "Associate Professor",
+          "Assistant Professor",
+          "HOD",
+          "Dean",
+          "Faculty",
+          "Professor of Practice",
+          "Lab Technician",
+          "Senior Lab Technician",
+          "Department Secretary",
         ];
         if (!validDesignations.includes(designation)) {
           throw new Error(`designation "${payload.designation}" is not valid`);
@@ -517,15 +517,15 @@ export const uploadMultipleFaculty = async (req, res, next) => {
 
         // ----- WorkType validation -----
         const validWorkTypes = [
-          'Full Time',
-          'Contract',
-          'Part Time',
-          'Visiting'
+          "Full Time",
+          "Contract",
+          "Part Time",
+          "Visiting",
         ];
         const workType = FacultyHelper.normalizeWorkType(payload.workType);
         if (!workType || !validWorkTypes.includes(workType)) {
           throw new Error(
-            `workType must be one of: ${validWorkTypes.join(', ')}`
+            `workType must be one of: ${validWorkTypes.join(", ")}`,
           );
         }
 
@@ -547,7 +547,7 @@ export const uploadMultipleFaculty = async (req, res, next) => {
         // ----- Find or create user/faculty within transaction -----
         let user = await User.findOne({ email: cleanEmail }).session(session);
         let faculty = await Faculty.findOne({
-          employeeId: cleanEmployeeId
+          employeeId: cleanEmployeeId,
         }).session(session);
 
         // Case 1: Neither user nor faculty exists → create both
@@ -556,13 +556,13 @@ export const uploadMultipleFaculty = async (req, res, next) => {
             [
               {
                 email: cleanEmail,
-                password: payload.password || 'sece@123',
-                role: 'FACULTY',
+                password: payload.password || "sece@123",
+                role: "FACULTY",
                 gender,
-                dateOfBirth
-              }
+                dateOfBirth,
+              },
             ],
-            { session }
+            { session },
           );
           user = newUser;
           usersCreated++;
@@ -583,10 +583,10 @@ export const uploadMultipleFaculty = async (req, res, next) => {
                 workType,
                 joiningDate,
                 reportingManager,
-                noticePeriod
-              }
+                noticePeriod,
+              },
             ],
-            { session }
+            { session },
           );
           faculty = newFaculty;
           facultyCreated++;
@@ -597,13 +597,13 @@ export const uploadMultipleFaculty = async (req, res, next) => {
             [
               {
                 email: cleanEmail,
-                password: payload.password || 'sece@123',
-                role: 'FACULTY',
+                password: payload.password || "sece@123",
+                role: "FACULTY",
                 gender,
-                dateOfBirth
-              }
+                dateOfBirth,
+              },
             ],
-            { session }
+            { session },
           );
           user = newUser;
           usersCreated++;
@@ -630,8 +630,8 @@ export const uploadMultipleFaculty = async (req, res, next) => {
           // Update user fields
           user.gender = gender;
           user.dateOfBirth = dateOfBirth;
-          if (user.role !== 'FACULTY') {
-            user.role = 'FACULTY';
+          if (user.role !== "FACULTY") {
+            user.role = "FACULTY";
           }
           await user.save({ session });
           usersUpdated++;
@@ -639,7 +639,7 @@ export const uploadMultipleFaculty = async (req, res, next) => {
           // Find or create faculty for this user
           if (!faculty) {
             faculty = await Faculty.findOne({ userId: user._id }).session(
-              session
+              session,
             );
           }
 
@@ -683,10 +683,10 @@ export const uploadMultipleFaculty = async (req, res, next) => {
                   workType,
                   joiningDate,
                   reportingManager,
-                  noticePeriod
-                }
+                  noticePeriod,
+                },
               ],
-              { session }
+              { session },
             );
             faculty = newFaculty;
             facultyCreated++;
@@ -695,7 +695,7 @@ export const uploadMultipleFaculty = async (req, res, next) => {
       } catch (error) {
         failedRows.push({
           row: rowNumber,
-          message: error.message
+          message: error.message,
         });
       }
     }
@@ -706,7 +706,7 @@ export const uploadMultipleFaculty = async (req, res, next) => {
       session.endSession();
       return next(
         new AppError(
-          'Bulk upload failed due to errors in some rows. No changes were saved.',
+          "Bulk upload failed due to errors in some rows. No changes were saved.",
           400,
           {
             usersCreated: 0,
@@ -714,24 +714,24 @@ export const uploadMultipleFaculty = async (req, res, next) => {
             facultyCreated: 0,
             facultyUpdated: 0,
             failedCount: failedRows.length,
-            failedRows
-          }
-        )
+            failedRows,
+          },
+        ),
       );
     } else {
       await session.commitTransaction();
       session.endSession();
       return res.json({
         success: true,
-        message: 'Faculty upload sync completed successfully',
+        message: "Faculty upload sync completed successfully",
         data: {
           usersCreated,
           usersUpdated,
           facultyCreated,
           facultyUpdated,
           failedCount: 0,
-          failedRows: []
-        }
+          failedRows: [],
+        },
       });
     }
   } catch (error) {
@@ -754,8 +754,8 @@ export const getAllFaculty = async (req, res, next) => {
       if (!mongoose.Types.ObjectId.isValid(departmentId)) {
         return res.status(400).json({
           success: false,
-          message: 'Invalid departmentId',
-          data: {}
+          message: "Invalid departmentId",
+          data: {},
         });
       }
       filter.departmentId = departmentId;
@@ -766,21 +766,21 @@ export const getAllFaculty = async (req, res, next) => {
 
     const facultyList = await Faculty.find(filter)
       .sort({ firstName: 1 })
-      .populate('userId', 'email role isActive gender dateOfBirth')
-      .populate('departmentId', 'name code')
+      .populate("userId", "email role isActive gender dateOfBirth")
+      .populate("departmentId", "name code")
       .populate(
-        'reportingManager',
-        'firstName lastName employeeId designation'
+        "reportingManager",
+        "firstName lastName employeeId designation",
       );
 
     const formattedFacultyList = facultyList.map(
-      FacultyHelper.flattenFacultyUserIsActive
+      FacultyHelper.flattenFacultyUserIsActive,
     );
 
     return res.json({
       success: true,
-      message: 'Faculty list retrieved successfully',
-      data: { facultyList: formattedFacultyList }
+      message: "Faculty list retrieved successfully",
+      data: { facultyList: formattedFacultyList },
     });
   } catch (error) {
     return next(error);
@@ -792,40 +792,40 @@ export const getDepartmentWise = async (req, res, next) => {
     const result = await Faculty.aggregate([
       {
         $group: {
-          _id: '$departmentId',
-          count: { $sum: 1 }
-        }
+          _id: "$departmentId",
+          count: { $sum: 1 },
+        },
       },
       {
         $lookup: {
-          from: 'departments',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'department'
-        }
+          from: "departments",
+          localField: "_id",
+          foreignField: "_id",
+          as: "department",
+        },
       },
       {
         $unwind: {
-          path: '$department',
-          preserveNullAndEmptyArrays: true
-        }
+          path: "$department",
+          preserveNullAndEmptyArrays: true,
+        },
       },
       {
         $project: {
           _id: 0,
-          departmentId: '$_id',
-          departmentName: '$department.name',
-          departmentCode: '$department.code',
-          count: 1
-        }
+          departmentId: "$_id",
+          departmentName: "$department.name",
+          departmentCode: "$department.code",
+          count: 1,
+        },
       },
-      { $sort: { departmentName: 1 } }
+      { $sort: { departmentName: 1 } },
     ]);
 
     return res.json({
       success: true,
-      message: 'Department wise counts retrieved successfully',
-      data: { result }
+      message: "Department wise counts retrieved successfully",
+      data: { result },
     });
   } catch (error) {
     return next(error);
@@ -839,8 +839,8 @@ export const getDepartmentWiseFaculty = async (req, res, next) => {
     if (!mongoose.Types.ObjectId.isValid(department)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid department ID format',
-        data: {}
+        message: "Invalid department ID format",
+        data: {},
       });
     }
 
@@ -848,8 +848,8 @@ export const getDepartmentWiseFaculty = async (req, res, next) => {
     if (!dept) {
       return res.status(404).json({
         success: false,
-        message: 'Department not found',
-        data: {}
+        message: "Department not found",
+        data: {},
       });
     }
 
@@ -857,11 +857,11 @@ export const getDepartmentWiseFaculty = async (req, res, next) => {
       { $match: { departmentId: dept._id } },
       {
         $group: {
-          _id: '$designation',
-          count: { $sum: 1 }
-        }
+          _id: "$designation",
+          count: { $sum: 1 },
+        },
       },
-      { $sort: { _id: 1 } }
+      { $sort: { _id: 1 } },
     ]);
 
     const designationSummary = rows.reduce((acc, row) => {
@@ -873,16 +873,16 @@ export const getDepartmentWiseFaculty = async (req, res, next) => {
       deansAndHods: 0,
       professors: 0,
       associateAssistant: 0,
-      others: 0
+      others: 0,
     };
 
     rows.forEach((row) => {
-      const key = String(row._id || '').toLowerCase();
-      if (key.includes('dean') || key.includes('hod')) {
+      const key = String(row._id || "").toLowerCase();
+      if (key.includes("dean") || key.includes("hod")) {
         categorySummary.deansAndHods += row.count;
-      } else if (key === 'professor') {
+      } else if (key === "professor") {
         categorySummary.professors += row.count;
-      } else if (key.includes('associate') || key.includes('assistant')) {
+      } else if (key.includes("associate") || key.includes("assistant")) {
         categorySummary.associateAssistant += row.count;
       } else {
         categorySummary.others += row.count;
@@ -891,17 +891,17 @@ export const getDepartmentWiseFaculty = async (req, res, next) => {
 
     return res.json({
       success: true,
-      message: 'Department wise faculty summary retrieved successfully',
+      message: "Department wise faculty summary retrieved successfully",
       data: {
         department: {
           _id: dept._id,
           name: dept.name,
-          code: dept.code
+          code: dept.code,
         },
         total: rows.reduce((sum, row) => sum + row.count, 0),
         designationSummary,
-        categorySummary
-      }
+        categorySummary,
+      },
     });
   } catch (error) {
     return next(error);
@@ -915,8 +915,8 @@ export const getDepartmentWiseFacultyList = async (req, res, next) => {
     if (!mongoose.Types.ObjectId.isValid(department)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid department ID format',
-        data: {}
+        message: "Invalid department ID format",
+        data: {},
       });
     }
 
@@ -924,27 +924,27 @@ export const getDepartmentWiseFacultyList = async (req, res, next) => {
     if (!dept) {
       return res.status(404).json({
         success: false,
-        message: 'Department not found',
-        data: {}
+        message: "Department not found",
+        data: {},
       });
     }
 
     const faculty = await Faculty.find({ departmentId: dept._id })
       .sort({ firstName: 1, lastName: 1 })
-      .populate('userId', 'email role isActive gender dateOfBirth')
-      .populate('departmentId', 'name code');
+      .populate("userId", "email role isActive gender dateOfBirth")
+      .populate("departmentId", "name code");
 
     const formattedFaculty = faculty.map(
-      FacultyHelper.flattenFacultyUserIsActive
+      FacultyHelper.flattenFacultyUserIsActive,
     );
 
     return res.json({
       success: true,
-      message: 'Department wise faculty list retrieved successfully',
+      message: "Department wise faculty list retrieved successfully",
       data: {
         total: formattedFaculty.length,
-        faculty: formattedFaculty
-      }
+        faculty: formattedFaculty,
+      },
     });
   } catch (error) {
     return next(error);
@@ -958,41 +958,41 @@ export const getDashboardStats = async (req, res, next) => {
     const agg = await Faculty.aggregate([
       {
         $addFields: {
-          des: { $toLower: '$designation' }
-        }
+          des: { $toLower: "$designation" },
+        },
       },
       {
         $group: {
           _id: {
             $cond: [
-              { $regexMatch: { input: '$des', regex: 'hod|dean' } },
-              'deanHod',
+              { $regexMatch: { input: "$des", regex: "hod|dean" } },
+              "deanHod",
               {
                 $cond: [
-                  { $regexMatch: { input: '$des', regex: 'assistant' } },
-                  'assistant',
+                  { $regexMatch: { input: "$des", regex: "assistant" } },
+                  "assistant",
                   {
                     $cond: [
-                      { $regexMatch: { input: '$des', regex: 'associate' } },
-                      'associate',
+                      { $regexMatch: { input: "$des", regex: "associate" } },
+                      "associate",
                       {
                         $cond: [
                           {
-                            $regexMatch: { input: '$des', regex: 'professor' }
+                            $regexMatch: { input: "$des", regex: "professor" },
                           },
-                          'professor',
-                          'other'
-                        ]
-                      }
-                    ]
-                  }
-                ]
-              }
-            ]
+                          "professor",
+                          "other",
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
           },
-          count: { $sum: 1 }
-        }
-      }
+          count: { $sum: 1 },
+        },
+      },
     ]);
 
     const stats = agg.reduce((acc, item) => {
@@ -1002,14 +1002,14 @@ export const getDashboardStats = async (req, res, next) => {
 
     return res.json({
       success: true,
-      message: 'Dashboard stats retrieved successfully',
+      message: "Dashboard stats retrieved successfully",
       data: {
         totalFaculty: total,
         deansAndHods: stats.deanHod || 0,
         professors: stats.professor || 0,
         associateAssistant: (stats.associate || 0) + (stats.assistant || 0),
-        others: stats.other || 0
-      }
+        others: stats.other || 0,
+      },
     });
   } catch (error) {
     return next(error);
@@ -1022,24 +1022,24 @@ export const getMyInfo = async (req, res, next) => {
     if (!userId) {
       return res.status(401).json({
         success: false,
-        message: 'Unauthorized',
-        data: {}
+        message: "Unauthorized",
+        data: {},
       });
     }
 
     const faculty = await Faculty.findOne({ userId })
-      .populate('userId', 'email role isActive gender dateOfBirth')
-      .populate('departmentId', 'name code')
+      .populate("userId", "email role isActive gender dateOfBirth")
+      .populate("departmentId", "name code")
       .populate(
-        'reportingManager',
-        'firstName lastName employeeId designation'
+        "reportingManager",
+        "firstName lastName employeeId designation",
       );
 
     if (!faculty) {
       return res.status(404).json({
         success: false,
-        message: 'Faculty profile not found',
-        data: {}
+        message: "Faculty profile not found",
+        data: {},
       });
     }
 
@@ -1047,8 +1047,8 @@ export const getMyInfo = async (req, res, next) => {
 
     return res.json({
       success: true,
-      message: 'Faculty profile retrieved successfully',
-      data: { faculty: formatted }
+      message: "Faculty profile retrieved successfully",
+      data: { faculty: formatted },
     });
   } catch (error) {
     return next(error);

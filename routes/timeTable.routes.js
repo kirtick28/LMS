@@ -20,7 +20,6 @@ router.get(
   getFacultyTimetable
 );
 
-// New endpoint for attendance timetable entries
 router.get(
   '/attendance-entries',
   authorize('HOD', 'ADMIN', 'FACULTY'),

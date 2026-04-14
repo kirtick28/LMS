@@ -25,11 +25,9 @@ export const getTimetableEntriesForAttendance = catchAsync(
       );
     }
 
-    // 1. Get the current day in 'MON', 'TUE', etc. format
     const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     const todayName = days[new Date().getDay()];
 
-    // 2. Find the relevant Timetable
     const timetable = await Timetable.findOne({
       sectionId,
       academicYearId,
@@ -207,61 +205,38 @@ export const getComponents = catchAsync(async (req, res, next) => {
     }
   });
 });
-
 export const getFacultyTimetable = catchAsync(async (req, res, next) => {
-  const { facultyId, academicYearId, semesterNumber } = req.query;
+  const { facultyId, academicYearId } = req.query;
 
   if (!facultyId) {
     return next(new AppError('Faculty ID is required', 400));
   }
 
-  if (!mongoose.Types.ObjectId.isValid(facultyId)) {
-    return next(new AppError('Invalid faculty ID format', 400));
-  }
-
-  // Determine current academic year and semester if not provided
   let targetAcademicYearId = academicYearId;
-  let targetSemesterNumber = semesterNumber;
 
-  if (!targetAcademicYearId || !targetSemesterNumber) {
-    const currentAcademicYear = await AcademicYear.findOne({
-      isActive: true
-    }).lean();
-    if (!currentAcademicYear) {
-      return next(new AppError('No active academic year found', 400));
-    }
+  if (!targetAcademicYearId) {
+    const currentAcademicYear = await AcademicYear.findOne({ isActive: true }).lean();
+    if (!currentAcademicYear) return next(new AppError('No active academic year found', 400));
     targetAcademicYearId = currentAcademicYear._id;
-    targetSemesterNumber = currentAcademicYear.currentSemester; // adjust field name if needed
-    if (!targetSemesterNumber) {
-      return next(
-        new AppError('Current semester not set for academic year', 400)
-      );
-    }
   }
 
-  // Step 1: Find FacultyAssignments for this faculty in the given academic year and semester
-  const facultyAssignments = await FacultyAssignment.find({
-    facultyIds: facultyId,
-    academicYearId: targetAcademicYearId,
-    semesterNumber: targetSemesterNumber,
-    status: 'active'
-  }).select('_id sectionId');
+  // 1. Find all active assignments for this faculty across ALL semesters
+  const [facultyAssignments, additionalHours] = await Promise.all([
+    FacultyAssignment.find({
+      facultyIds: facultyId,
+      academicYearId: targetAcademicYearId,
+      status: 'active'
+    }).select('_id sectionId subjectComponentId venue semesterNumber').lean(),
+    AdditionalHour.find({
+      facultyIds: facultyId,
+      academicYearId: targetAcademicYearId
+    }).select('_id sectionId name shortName venue semesterNumber').lean()
+  ]);
 
-  const faIds = facultyAssignments.map((fa) => fa._id);
-  const sectionIds = [
-    ...new Set(facultyAssignments.map((fa) => fa.sectionId.toString()))
-  ];
+  const faIds = facultyAssignments.map(fa => fa._id);
+  const ahIds = additionalHours.map(ah => ah._id);
 
-  // Step 2: Find AdditionalHours for this faculty in the same academic year and semester
-  const additionalHours = await AdditionalHour.find({
-    facultyIds: facultyId,
-    academicYearId: targetAcademicYearId,
-    semesterNumber: targetSemesterNumber
-  }).select('_id');
-
-  const ahIds = additionalHours.map((ah) => ah._id);
-
-  // Step 3: Fetch TimetableEntries
+  // 2. Find all Timetable Entries for these assignments
   const entries = await TimetableEntry.find({
     $or: [
       { facultyAssignmentId: { $in: faIds } },
@@ -269,124 +244,97 @@ export const getFacultyTimetable = catchAsync(async (req, res, next) => {
     ]
   }).lean();
 
-  if (entries.length === 0) {
-    return res.status(200).json({
-      success: true,
-      data: { slots: [], grid: {} }
-    });
+  if (!entries.length) {
+    return res.status(200).json({ success: true, data: { slots: [], grid: {} } });
   }
 
-  // Step 4: Get unique timetableIds and fetch corresponding timetables
-  const timetableIds = [
-    ...new Set(entries.map((e) => e.timetableId.toString()))
-  ];
-  const timetables = await Timetable.find({ _id: { $in: timetableIds } })
-    .select('slots')
-    .lean();
+  // 3. Fetch Slot structure (Assuming uniform slots across the institution)
+  const timetableIds = [...new Set(entries.map(e => e.timetableId.toString()))];
+  const timetables = await Timetable.find({ _id: { $in: timetableIds } }).select('slots').lean();
+  const slots = timetables[0]?.slots.sort((a, b) => a.order - b.order) || [];
 
-  const timetableMap = new Map(timetables.map((t) => [t._id.toString(), t]));
+  // 4. Pre-fetch Metadata (Sections, Departments, Subjects)
+  const sectionIds = [...new Set([
+    ...facultyAssignments.map(fa => fa.sectionId.toString()),
+    ...additionalHours.map(ah => ah.sectionId.toString())
+  ])];
 
-  // Step 5: Get slots from the first timetable (assume they are consistent across sections)
-  const firstTimetable = timetables[0];
-  const slots = firstTimetable
-    ? firstTimetable.slots.sort((a, b) => a.order - b.order)
-    : [];
-
-  // Step 6: Pre‑fetch section details with batchProgram
-  const sectionDetailsMap = new Map();
-  if (sectionIds.length) {
-    const sections = await Section.find({ _id: { $in: sectionIds } })
+  const [sections, ayDoc] = await Promise.all([
+    Section.find({ _id: { $in: sectionIds } })
       .populate({
         path: 'batchProgramId',
         populate: [
-          { path: 'batchId', select: 'year' },
-          { path: 'departmentId', select: 'code name' }
+          { path: 'departmentId', select: 'name code' },
+          { path: 'batchId', select: 'name' }
         ]
-      })
-      .lean();
-    for (const sec of sections) {
-      sectionDetailsMap.set(sec._id.toString(), sec);
-    }
-  }
+      }).lean(),
+    AcademicYear.findById(targetAcademicYearId).select('name').lean()
+  ]);
 
-  // Step 7: Pre‑fetch facultyAssignments with subject details
-  const faDetailsMap = new Map();
-  if (faIds.length) {
-    const fas = await FacultyAssignment.find({ _id: { $in: faIds } })
-      .populate({
-        path: 'subjectComponentId',
-        populate: { path: 'subjectId' }
-      })
-      .lean();
-    for (const fa of fas) {
-      faDetailsMap.set(fa._id.toString(), fa);
-    }
-  }
+  const fasPopulated = await FacultyAssignment.find({ _id: { $in: faIds } })
+    .populate({
+      path: 'subjectComponentId',
+      populate: { path: 'subjectId', select: 'name code shortName' }
+    }).lean();
 
-  // Step 8: Pre‑fetch additional hours
-  const ahDetailsMap = new Map();
-  if (ahIds.length) {
-    const ahs = await AdditionalHour.find({ _id: { $in: ahIds } }).lean();
-    for (const ah of ahs) {
-      ahDetailsMap.set(ah._id.toString(), ah);
-    }
-  }
+  const sectionMap = new Map(sections.map(s => [s._id.toString(), s]));
+  const faMap = new Map(fasPopulated.map(f => [f._id.toString(), f]));
+  const ahMap = new Map(additionalHours.map(a => [a._id.toString(), a]));
 
-  // Step 9: Build the grid
+  // 5. Build the Unified Grid
   const grid = {};
 
-  for (const entry of entries) {
-    const timetable = timetableMap.get(entry.timetableId.toString());
-    if (!timetable) continue;
-
-    const day = entry.day;
-    const slotOrder = entry.slotOrder;
-
+  entries.forEach(entry => {
+    const { day, slotOrder, facultyAssignmentId, additionalHourId } = entry;
+    
     if (!grid[day]) grid[day] = {};
     if (!grid[day][slotOrder]) grid[day][slotOrder] = [];
 
-    if (entry.facultyAssignmentId) {
-      const fa = faDetailsMap.get(entry.facultyAssignmentId.toString());
-      if (fa) {
-        const section = sectionDetailsMap.get(fa.sectionId.toString());
-        const subjectComp = fa.subjectComponentId;
-        const subject = subjectComp?.subjectId;
+    let entryData = {};
 
-        grid[day][slotOrder].push({
-          type: 'regular',
-          sectionName: section?.name || '',
-          batchYear: section?.batchProgramId?.batchId?.year || '',
-          departmentCode: section?.batchProgramId?.departmentId?.code || '',
-          subjectCode: subject?.code || '',
-          subjectShortName: subjectComp?.shortName || subject?.shortName || '',
-          componentType: subjectComp?.componentType || '',
-          venue: fa.venue || ''
-        });
-      }
-    } else if (entry.additionalHourId) {
-      const ah = ahDetailsMap.get(entry.additionalHourId.toString());
-      if (ah) {
-        const section = sectionDetailsMap.get(ah.sectionId.toString());
-        grid[day][slotOrder].push({
-          type: 'additional',
-          sectionName: section?.name || '',
-          batchYear: section?.batchProgramId?.batchId?.year || '',
-          departmentCode: section?.batchProgramId?.departmentId?.code || '',
-          name: ah.name,
-          shortName: ah.shortName,
-          venue: ah.venue || ''
-        });
-      }
+    if (facultyAssignmentId) {
+      const fa = faMap.get(facultyAssignmentId.toString());
+      const section = sectionMap.get(fa?.sectionId.toString());
+      const subComp = fa?.subjectComponentId;
+
+      entryData = {
+        type: 'regular',
+        semesterNumber: fa?.semesterNumber,
+        batchName: section?.batchProgramId?.batchId?.name || '',
+        departmentCode: section?.batchProgramId?.departmentId?.code || '',
+        sectionName: section?.name || '',
+        subjectCode: subComp?.subjectId?.code || '',
+        subjectName: subComp?.subjectId?.name || '',
+        subjectShortName: subComp?.shortName || subComp?.subjectId?.shortName || '',
+        componentType: subComp?.componentType || '',
+        venue: fa?.venue || ''
+      };
+    } else if (additionalHourId) {
+      const ah = ahMap.get(additionalHourId.toString());
+      const section = sectionMap.get(ah?.sectionId.toString());
+
+      entryData = {
+        type: 'additional',
+        semesterNumber: ah?.semesterNumber,
+        batchName: section?.batchProgramId?.batchId?.name || '',
+        departmentCode: section?.batchProgramId?.departmentId?.code || '',
+        sectionName: section?.name || '',
+        subjectName: ah?.name || '',
+        subjectShortName: ah?.shortName || '',
+        venue: ah?.venue || ''
+      };
     }
-  }
+
+    grid[day][slotOrder].push(entryData);
+  });
 
   res.status(200).json({
     success: true,
     data: {
       slots,
       grid,
-      academicYearId: targetAcademicYearId,
-      semesterNumber: targetSemesterNumber
+      academicYear: ayDoc?.name,
+      facultyId
     }
   });
 });
@@ -583,7 +531,7 @@ async function validateFacultyClash({
     for (const fid of facultyIds) {
       if (existingConflicts.has(`${fid}_${key}`)) {
         throw new AppError(
-          `Faculty ${fid} is already assigned to a class on ${key} (${key.replace('_', ' ')}).`,
+          `Faculty is already assigned to a class on (${key.replace('_', ' ')} SLOT).`,
           400
         );
       }

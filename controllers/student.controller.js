@@ -116,7 +116,7 @@ export const addStudent = async (req, res, next) => {
         {
           _id: userId,
           email: normalizedEmail,
-          password,
+          password: password || 'sece@123',
           role: 'STUDENT',
           gender,
           dateOfBirth
@@ -601,7 +601,7 @@ export const uploadMultipleStudents = async (req, res, next) => {
       users.push({
         _id: userId,
         email: normalizedEmail,
-        password: row.password || '123456',
+        password: row.password || 'sece@123',
         role: 'STUDENT',
         gender,
         dateOfBirth
@@ -642,7 +642,7 @@ export const uploadMultipleStudents = async (req, res, next) => {
     session = await mongoose.startSession();
     session.startTransaction();
 
-    await User.insertMany(users, { session });
+    await User.create(users, { session });
     await Student.insertMany(students, { session });
     await StudentAcademicRecord.insertMany(academicRecords, { session });
 

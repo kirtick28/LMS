@@ -1,14 +1,13 @@
 import mongoose from 'mongoose';
 import Classroom from '../models/Classroom.js';
 import ClassroomMember from '../models/ClassroomMember.js';
-import ClassroomInvitation from '../models/ClassroomInvitation.js';
-import AcademicYear from '../models/AcademicYear.js';
-import Section from '../models/Section.js';
-import SubjectComponent from '../models/SubjectComponent.js';
-import Faculty from '../models/Faculty.js';
-import Student from '../models/Student.js';
 import catchAsync from '../utils/catchAsync.js';
 import AppError from '../utils/AppError.js';
+import {
+  ensureClassroomAccess,
+  getStudentAcademicContext,
+  resolveAcademicYear
+} from '../utils/classroomAccess.js';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -32,16 +31,13 @@ const subjectPopulate = {
 
 export const getClassrooms = catchAsync(async (req, res, next) => {
   let { userId, sectionId, academicYearId, semesterNumber, status } = req.query;
+  const academicYear = await resolveAcademicYear(academicYearId);
+  academicYearId = academicYear._id;
 
-  if (!academicYearId) {
-    const activeYear = await AcademicYear.findOne({ isActive: true });
-    if (!activeYear) {
-      return next(new AppError('Active academic year not found', 404));
-    }
-    academicYearId = activeYear._id;
-  }
-
-  const filter = { academicYearId };
+  const filter = {
+    academicYearId,
+    isDeleted: false
+  };
 
   if (sectionId) {
     if (!isValidObjectId(sectionId))
@@ -57,36 +53,64 @@ export const getClassrooms = catchAsync(async (req, res, next) => {
     filter.status = status;
   }
 
-  if (userId) {
-    if (!isValidObjectId(userId)) {
-      return next(new AppError('Invalid userId', 400));
+  if (req.user.role === 'STUDENT') {
+    const { student, academicRecord } = await getStudentAcademicContext(
+      req.user._id,
+      academicYearId
+    );
+
+    filter.sectionId = academicRecord?.sectionId || student.sectionId;
+    filter.semesterNumber =
+      academicRecord?.semesterNumber || student.semesterNumber;
+    filter.status = status || 'active';
+  } else {
+    const requestedUserId = userId || req.user._id;
+
+    if (userId && req.user.role !== 'ADMIN' && String(userId) !== String(req.user._id)) {
+      return next(new AppError('You are not allowed to view another user', 403));
     }
 
-    const faculty = await Faculty.findOne({ userId }).lean();
-    const student = await Student.findOne({ userId }).lean();
+    if (requestedUserId && req.user.role !== 'ADMIN') {
+      if (!isValidObjectId(requestedUserId)) {
+        return next(new AppError('Invalid userId', 400));
+      }
 
-    let role = null;
-    if (faculty) role = 'FACULTY';
-    else if (student) role = 'STUDENT';
-    else {
-      return next(new AppError('User not found as faculty or student', 404));
+      const memberships = await ClassroomMember.find({
+        userId: requestedUserId,
+        role: 'FACULTY',
+        status: 'active'
+      }).select('classroomId');
+
+      const classroomIds = memberships.map((membership) => membership.classroomId);
+      if (!classroomIds.length) {
+        return res.status(200).json({
+          success: true,
+          message: 'No classrooms found for this user',
+          data: { classrooms: [] }
+        });
+      }
+
+      filter._id = { $in: classroomIds };
+    } else if (requestedUserId && req.user.role === 'ADMIN' && userId) {
+      if (!isValidObjectId(requestedUserId)) {
+        return next(new AppError('Invalid userId', 400));
+      }
+
+      const memberships = await ClassroomMember.find({
+        userId: requestedUserId,
+        status: 'active'
+      }).select('classroomId');
+
+      if (!memberships.length) {
+        return res.status(200).json({
+          success: true,
+          message: 'No classrooms found for this user',
+          data: { classrooms: [] }
+        });
+      }
+
+      filter._id = { $in: memberships.map((membership) => membership.classroomId) };
     }
-
-    const memberships = await ClassroomMember.find({
-      userId,
-      role,
-      status: 'active'
-    }).select('classroomId');
-
-    const classroomIds = memberships.map((m) => m.classroomId);
-    if (classroomIds.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: 'No classrooms found for this user',
-        data: { classrooms: [] }
-      });
-    }
-    filter._id = { $in: classroomIds };
   }
 
   const classrooms = await Classroom.find(filter)
@@ -124,10 +148,7 @@ export const getClassrooms = catchAsync(async (req, res, next) => {
 
 export const getClassroomById = catchAsync(async (req, res, next) => {
   const { id } = req.params;
-
-  if (!isValidObjectId(id)) {
-    return next(new AppError('Invalid classroom id', 400));
-  }
+  await ensureClassroomAccess({ classroomId: id, user: req.user });
 
   const classroom = await Classroom.findById(id)
     .populate(sectionDepartmentPopulate)
@@ -166,9 +187,11 @@ export const getClassroomById = catchAsync(async (req, res, next) => {
 export const updateClassroom = catchAsync(async (req, res, next) => {
   const { id } = req.params;
 
-  if (!isValidObjectId(id)) {
-    return next(new AppError('Invalid classroom id', 400));
-  }
+  await ensureClassroomAccess({
+    classroomId: id,
+    user: req.user,
+    requireFaculty: true
+  });
 
   const allowedFields = ['name', 'status'];
 

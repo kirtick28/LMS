@@ -5,13 +5,14 @@ import User from '../models/User.js';
 import Classroom from '../models/Classroom.js';
 import ClassroomMember from '../models/ClassroomMember.js';
 import ClassroomInvitation from '../models/ClassroomInvitation.js';
-import AcademicYear from '../models/AcademicYear.js';
-import Section from '../models/Section.js';
-import SubjectComponent from '../models/SubjectComponent.js';
 import Faculty from '../models/Faculty.js';
 import Student from '../models/Student.js';
 import catchAsync from '../utils/catchAsync.js';
 import AppError from '../utils/AppError.js';
+import {
+  ensureClassroomAccess,
+  getClassroomStudentRoster
+} from '../utils/classroomAccess.js';
 
 const generateHTMLContent = (classroomName, inviteUrl) => {
   return `
@@ -107,41 +108,31 @@ const generateHTMLContent = (classroomName, inviteUrl) => {
 
 export const getClassroomMembers = catchAsync(async (req, res, next) => {
   const { classroomId } = req.params;
+  const classroom = await ensureClassroomAccess({
+    classroomId,
+    user: req.user
+  });
 
-  if (!mongoose.Types.ObjectId.isValid(classroomId)) {
-    return next(new AppError('Invalid classroomId', 400));
-  }
   const members = await ClassroomMember.find({
     classroomId,
     status: 'active'
   }).lean();
 
-  if (!members.length) {
-    return res.status(200).json({
-      success: true,
-      data: { faculties: [], students: [] }
-    });
-  }
   const facultyUserIds = members
     .filter((m) => m.role === 'FACULTY')
     .map((m) => m.userId);
 
-  const studentUserIds = members
-    .filter((m) => m.role === 'STUDENT')
-    .map((m) => m.userId);
-
-  console.log(facultyUserIds);
-
   const [faculties, students] = await Promise.all([
-    Faculty.find({ userId: { $in: facultyUserIds } })
-      .select(
-        'firstName lastName employeeId designation profileImage departmentId'
-      )
-      .populate({ path: 'departmentId', select: 'name code' })
-      .lean(),
-    Student.find({ userId: { $in: studentUserIds } })
-      .select('firstName lastName registerNumber rollNumber profileImage')
-      .lean()
+    facultyUserIds.length
+      ? Faculty.find({ userId: { $in: facultyUserIds } })
+          .select(
+            'firstName lastName employeeId designation profileImage departmentId userId'
+          )
+          .populate({ path: 'departmentId', select: 'name code' })
+          .sort({ firstName: 1, lastName: 1 })
+          .lean()
+      : [],
+    getClassroomStudentRoster(classroom)
   ]);
 
   res.status(200).json({
@@ -158,10 +149,11 @@ export const getEligibleMembersForInvite = catchAsync(
   async (req, res, next) => {
     const { classroomId, type } = req.params;
 
-    const classroom = await Classroom.findById(classroomId);
-    if (!classroom) {
-      return next(new AppError('Classroom not found', 404));
-    }
+    const classroom = await ensureClassroomAccess({
+      classroomId,
+      user: req.user,
+      requireFaculty: true
+    });
 
     const existingMembers = await ClassroomMember.find({
       classroomId,
@@ -244,6 +236,12 @@ export const inviteMembers = catchAsync(async (req, res, next) => {
   session.startTransaction();
 
   try {
+    await ensureClassroomAccess({
+      classroomId,
+      user: req.user,
+      requireFaculty: true
+    });
+
     const classroom = await Classroom.findById(classroomId)
       .populate({
         path: 'subjectId',

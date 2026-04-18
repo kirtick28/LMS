@@ -1,12 +1,88 @@
 import mongoose from 'mongoose';
-import ClassroomPost from '../models/ClassroomPost.js';
+
 import Assignment from '../models/Assignment.js';
+import Classroom from '../models/Classroom.js';
+import ClassroomPost from '../models/ClassroomPost.js';
 import Comment from '../models/Comment.js';
+import Faculty from '../models/Faculty.js';
 import Material from '../models/Material.js';
-import Topic from '../models/Topic.js';
 import Quiz from '../models/Quiz.js';
+import Student from '../models/Student.js';
+import Submission from '../models/Submission.js';
+import Topic from '../models/Topic.js';
 import catchAsync from '../utils/catchAsync.js';
 import AppError from '../utils/AppError.js';
+import {
+  ensureClassroomAccess,
+  getClassroomStudentCount,
+  getClassroomStudentRoster
+} from '../utils/classroomAccess.js';
+
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+const facultyRoles = new Set(['ADMIN', 'FACULTY', 'HOD']);
+
+const stripHtml = (value = '') =>
+  String(value)
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const parseMaybeJson = (value, fallback = null) => {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value !== 'string') return value;
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+};
+
+const normalizeCreatorRole = (role) => (role === 'STUDENT' ? 'STUDENT' : 'FACULTY');
+
+const normalizeLinkedAttachments = (attachments = []) =>
+  (attachments || [])
+    .filter((attachment) => attachment?.fileUrl)
+    .map((attachment) => ({
+      fileName: attachment.fileName || 'link',
+      fileUrl: attachment.fileUrl,
+      fileType: attachment.fileType || 'link'
+    }));
+
+const normalizeUploadedAttachments = (files = []) =>
+  (files || []).map((file) => ({
+    fileName: file.originalname,
+    fileUrl: `/pdf/${file.filename}`,
+    fileType: file.mimetype
+  }));
+
+const serializeSubmission = (submission) => {
+  if (!submission) return null;
+
+  return {
+    ...submission,
+    attachments: submission.attachments || [],
+    quizAnswers: submission.quizAnswers || [],
+    isLate: !!submission.isLate
+  };
+};
+
+const getSubmissionState = ({
+  submission,
+  dueDate,
+  allowLateSubmission = true
+}) => {
+  if (!submission) {
+    if (dueDate && new Date(dueDate).getTime() < Date.now()) {
+      return allowLateSubmission ? 'missing' : 'closed';
+    }
+    return 'pending';
+  }
+
+  if (submission.status === 'graded') return 'graded';
+  if (submission.isLate) return 'late';
+  return 'submitted';
+};
 
 const getOrCreateTopic = async (classroomId, session) => {
   let defaultTopic = await Topic.findOne({
@@ -25,28 +101,425 @@ const getOrCreateTopic = async (classroomId, session) => {
       ],
       { session }
     );
+
     return created[0];
   }
 
   return defaultTopic;
 };
 
-// ================= TOPIC =================
+const getPopulatedClassroom = async (classroomId) => {
+  const classroom = await Classroom.findById(classroomId)
+    .populate({
+      path: 'sectionId',
+      select: 'name batchProgramId',
+      populate: {
+        path: 'batchProgramId',
+        select: 'departmentId',
+        populate: {
+          path: 'departmentId',
+          select: 'name code'
+        }
+      }
+    })
+    .populate({
+      path: 'subjectId',
+      select: 'name code shortName deliveryType credits'
+    })
+    .populate('academicYearId', 'name')
+    .lean();
+
+  if (!classroom) {
+    throw new AppError('Classroom not found', 404);
+  }
+
+  const department = classroom.sectionId?.batchProgramId?.departmentId || null;
+
+  return {
+    ...classroom,
+    sectionId: classroom.sectionId
+      ? {
+          _id: classroom.sectionId._id,
+          name: classroom.sectionId.name
+        }
+      : null,
+    department: department
+      ? {
+          name: department.name,
+          code: department.code
+        }
+      : null
+  };
+};
+
+const getAuthorProfiles = async (userIds = []) => {
+  const uniqueUserIds = [...new Set(userIds.filter(Boolean).map(String))];
+  if (!uniqueUserIds.length) {
+    return new Map();
+  }
+
+  const [faculties, students] = await Promise.all([
+    Faculty.find({ userId: { $in: uniqueUserIds } })
+      .select(
+        'userId firstName lastName employeeId designation departmentId profileImage'
+      )
+      .populate({ path: 'departmentId', select: 'name code' })
+      .lean(),
+    Student.find({ userId: { $in: uniqueUserIds } })
+      .select('userId firstName lastName registerNumber rollNumber sectionId')
+      .lean()
+  ]);
+
+  const profileMap = new Map();
+
+  faculties.forEach((faculty) => {
+    profileMap.set(String(faculty.userId), {
+      _id: faculty._id,
+      userId: faculty.userId,
+      firstName: faculty.firstName,
+      lastName: faculty.lastName,
+      designation: faculty.designation,
+      employeeId: faculty.employeeId,
+      department: faculty.departmentId
+        ? {
+            _id: faculty.departmentId._id,
+            name: faculty.departmentId.name,
+            code: faculty.departmentId.code
+          }
+        : null,
+      role: 'FACULTY'
+    });
+  });
+
+  students.forEach((student) => {
+    profileMap.set(String(student.userId), {
+      _id: student._id,
+      userId: student.userId,
+      firstName: student.firstName,
+      lastName: student.lastName,
+      registerNumber: student.registerNumber,
+      rollNumber: student.rollNumber,
+      role: 'STUDENT'
+    });
+  });
+
+  return profileMap;
+};
+
+const getCommentsByPostId = async (postIds) => {
+  if (!postIds.length) {
+    return new Map();
+  }
+
+  const comments = await Comment.find({ postId: { $in: postIds } })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const commentAuthorMap = await getAuthorProfiles(
+    comments.map((comment) => comment.userId)
+  );
+
+  const grouped = new Map();
+
+  comments.forEach((comment) => {
+    const postId = String(comment.postId);
+    if (!grouped.has(postId)) {
+      grouped.set(postId, []);
+    }
+
+    grouped.get(postId).push({
+      _id: comment._id,
+      message: comment.message,
+      createdAt: comment.createdAt,
+      user: commentAuthorMap.get(String(comment.userId)) || null
+    });
+  });
+
+  return grouped;
+};
+
+const hydratePosts = async ({ classroom, posts, user }) => {
+  if (!posts.length) {
+    return [];
+  }
+
+  const postIds = posts.map((post) => post._id);
+  const authorProfileMap = await getAuthorProfiles(
+    posts.map((post) => post.createdBy)
+  );
+
+  const [assignments, quizzes, materials, commentMap, totalStudents, submissions] =
+    await Promise.all([
+      Assignment.find({ postId: { $in: postIds } }).lean(),
+      Quiz.find({ postId: { $in: postIds } }).lean(),
+      Material.find({ postId: { $in: postIds } }).lean(),
+      getCommentsByPostId(
+        posts
+          .filter((post) => post.type === 'announcement')
+          .map((post) => post._id)
+      ),
+      getClassroomStudentCount(classroom),
+      Submission.find({ postId: { $in: postIds } }).lean()
+    ]);
+
+  const assignmentMap = new Map(
+    assignments.map((assignment) => [String(assignment.postId), assignment])
+  );
+  const quizMap = new Map(quizzes.map((quiz) => [String(quiz.postId), quiz]));
+  const materialMap = new Map(
+    materials.map((material) => [String(material.postId), material])
+  );
+
+  const submissionsByPostId = new Map();
+  submissions.forEach((submission) => {
+    const postId = String(submission.postId);
+    if (!submissionsByPostId.has(postId)) {
+      submissionsByPostId.set(postId, []);
+    }
+    submissionsByPostId.get(postId).push(serializeSubmission(submission));
+  });
+
+  return posts.map((post) => {
+    const postId = String(post._id);
+    const assignment = assignmentMap.get(postId) || null;
+    const quiz = quizMap.get(postId) || null;
+    const material = materialMap.get(postId) || null;
+    const postSubmissions = submissionsByPostId.get(postId) || [];
+    const mySubmission =
+      user.role === 'STUDENT'
+        ? postSubmissions.find(
+            (submission) => String(submission.studentId) === String(user._id)
+          ) || null
+        : null;
+
+    const submissionConfig =
+      post.type === 'assignment'
+        ? assignment
+        : post.type === 'quiz'
+          ? quiz
+          : null;
+
+    const submittedCount = postSubmissions.length;
+    const gradedCount = postSubmissions.filter(
+      (submission) => submission.status === 'graded'
+    ).length;
+
+    return {
+      ...post,
+      createdBy: authorProfileMap.get(String(post.createdBy)) || null,
+      topicId: post.topicId
+        ? {
+            _id: post.topicId._id,
+            name: post.topicId.name,
+            isDefault: !!post.topicId.isDefault
+          }
+        : null,
+      assignment,
+      quiz,
+      material,
+      comments: commentMap.get(postId) || [],
+      commentsCount: (commentMap.get(postId) || []).length,
+      mySubmission,
+      submissionSummary:
+        post.type === 'assignment' || post.type === 'quiz'
+          ? {
+              totalStudents,
+              submittedCount,
+              gradedCount,
+              pendingCount: Math.max(totalStudents - submittedCount, 0),
+              myStatus: getSubmissionState({
+                submission: mySubmission,
+                dueDate: submissionConfig?.dueDate || null,
+                allowLateSubmission:
+                  submissionConfig?.allowLateSubmission ?? true
+              })
+            }
+          : null
+    };
+  });
+};
+
+const getPostWithAccess = async ({ classroomId, postId, user }) => {
+  const classroom = await ensureClassroomAccess({
+    classroomId,
+    user
+  });
+
+  if (!isValidObjectId(postId)) {
+    throw new AppError('Invalid postId', 400);
+  }
+
+  const post = await ClassroomPost.findOne({
+    _id: postId,
+    classroomId
+  })
+    .populate('topicId', 'name isDefault')
+    .lean();
+
+  if (!post) {
+    throw new AppError('Post not found', 404);
+  }
+
+  return { classroom, post };
+};
+
+const buildSubmissionRoster = async ({ classroom, post }) => {
+  const submissionConfig =
+    post.type === 'assignment'
+      ? post.assignment
+      : post.type === 'quiz'
+        ? post.quiz
+        : null;
+
+  if (!submissionConfig) {
+    return [];
+  }
+
+  const [students, submissions] = await Promise.all([
+    getClassroomStudentRoster(classroom),
+    Submission.find({ postId: post._id }).lean()
+  ]);
+
+  const submissionMap = new Map(
+    submissions.map((submission) => [
+      String(submission.studentId),
+      serializeSubmission(submission)
+    ])
+  );
+
+  return students.map((student) => {
+    const submission = submissionMap.get(String(student.userId)) || null;
+
+    return {
+      student: {
+        _id: student._id,
+        userId: student.userId,
+        firstName: student.firstName,
+        lastName: student.lastName,
+        registerNumber: student.registerNumber,
+        rollNumber: student.rollNumber
+      },
+      submission,
+      state: getSubmissionState({
+        submission,
+        dueDate: submissionConfig?.dueDate || null,
+        allowLateSubmission: submissionConfig?.allowLateSubmission ?? true
+      })
+    };
+  });
+};
+
+const normalizeQuizAnswers = (quizAnswers) => {
+  const parsed = parseMaybeJson(quizAnswers, []);
+  return Array.isArray(parsed) ? parsed : [];
+};
+
+const gradeQuizSubmission = (quiz, quizAnswers) => {
+  const answerMap = new Map(
+    (quizAnswers || []).map((answer) => [Number(answer.questionIndex), answer])
+  );
+
+  let marks = 0;
+
+  quiz.questions.forEach((question, index) => {
+    const answer = answerMap.get(index);
+    if (!answer) return;
+
+    if (question.questionType === 'short_answer') {
+      const submittedText = String(answer.textAnswer || '')
+        .trim()
+        .toLowerCase();
+      const expected = String(question.correctAnswers?.[0] || '')
+        .trim()
+        .toLowerCase();
+
+      if (submittedText && submittedText === expected) {
+        marks += Number(question.points || 0);
+      }
+      return;
+    }
+
+    const submittedAnswers = Array.isArray(answer.answers)
+      ? answer.answers.map((item) => String(item).trim()).sort()
+      : [];
+    const expectedAnswers = (question.correctAnswers || [])
+      .map((item) => String(item).trim())
+      .sort();
+
+    if (
+      submittedAnswers.length === expectedAnswers.length &&
+      submittedAnswers.every((value, idx) => value === expectedAnswers[idx])
+    ) {
+      marks += Number(question.points || 0);
+    }
+  });
+
+  return marks;
+};
+
+const validateAssignmentSubmission = ({
+  assignment,
+  attachments,
+  linkSubmission,
+  textSubmission
+}) => {
+  const hasFiles = attachments.length > 0;
+  const hasLink = !!linkSubmission;
+  const hasText = !!stripHtml(textSubmission);
+
+  if (assignment.submissionType === 'file' && !hasFiles) {
+    throw new AppError('A file submission is required', 400);
+  }
+
+  if (assignment.submissionType === 'link' && !hasLink) {
+    throw new AppError('A link submission is required', 400);
+  }
+
+  if (assignment.submissionType === 'text' && !hasText) {
+    throw new AppError('A text submission is required', 400);
+  }
+
+  if (
+    assignment.submissionType === 'any' &&
+    !hasFiles &&
+    !hasLink &&
+    !hasText
+  ) {
+    throw new AppError('Add a file, link, or text before submitting', 400);
+  }
+};
+
+const validateDueDateWindow = ({ dueDate, allowLateSubmission }) => {
+  if (!dueDate) {
+    return false;
+  }
+
+  const isLate = new Date(dueDate).getTime() < Date.now();
+
+  if (isLate && !allowLateSubmission) {
+    throw new AppError('Submissions are closed for this work item', 403);
+  }
+
+  return isLate;
+};
+
 export const createTopic = catchAsync(async (req, res, next) => {
   const { classroomId } = req.params;
   const { name } = req.body;
 
-  if (!classroomId || !name) {
-    return next(new AppError('classroomId and name are required', 400));
-  }
+  await ensureClassroomAccess({
+    classroomId,
+    user: req.user,
+    requireFaculty: true
+  });
 
-  if (!mongoose.Types.ObjectId.isValid(classroomId)) {
-    return next(new AppError('Invalid classroomId', 400));
+  if (!name || !String(name).trim()) {
+    return next(new AppError('classroomId and name are required', 400));
   }
 
   const existing = await Topic.findOne({
     classroomId,
-    name: name.trim()
+    name: String(name).trim()
   });
 
   if (existing) {
@@ -58,7 +531,7 @@ export const createTopic = catchAsync(async (req, res, next) => {
 
   const topic = await Topic.create({
     classroomId,
-    name: name.trim(),
+    name: String(name).trim(),
     isDefault: false
   });
 
@@ -72,13 +545,14 @@ export const createTopic = catchAsync(async (req, res, next) => {
 export const getTopics = catchAsync(async (req, res, next) => {
   const { classroomId } = req.params;
 
-  if (!mongoose.Types.ObjectId.isValid(classroomId)) {
-    return next(new AppError('Invalid classroomId', 400));
-  }
+  await ensureClassroomAccess({
+    classroomId,
+    user: req.user
+  });
 
   const topics = await Topic.find({ classroomId })
     .select('_id name isDefault')
-    .sort({ isDefault: -1, createdAt: 1 }); // default first
+    .sort({ isDefault: -1, createdAt: 1 });
 
   res.status(200).json({
     success: true,
@@ -87,25 +561,30 @@ export const getTopics = catchAsync(async (req, res, next) => {
 });
 
 export const updateTopic = catchAsync(async (req, res, next) => {
-  const { topicId } = req.params;
+  const { classroomId, topicId } = req.params;
   const { name } = req.body;
 
-  if (!topicId || !name) {
+  await ensureClassroomAccess({
+    classroomId,
+    user: req.user,
+    requireFaculty: true
+  });
+
+  if (!topicId || !name || !String(name).trim()) {
     return next(new AppError('topicId and name are required', 400));
   }
 
-  if (!mongoose.Types.ObjectId.isValid(topicId)) {
+  if (!isValidObjectId(topicId)) {
     return next(new AppError('Invalid topicId', 400));
   }
 
-  const topic = await Topic.findById(topicId);
+  const topic = await Topic.findOne({ _id: topicId, classroomId });
 
   if (!topic) {
     return next(new AppError('Topic not found', 404));
   }
 
-  topic.name = name.trim();
-
+  topic.name = String(name).trim();
   await topic.save();
 
   res.status(200).json({
@@ -118,7 +597,13 @@ export const updateTopic = catchAsync(async (req, res, next) => {
 export const deleteTopic = catchAsync(async (req, res, next) => {
   const { classroomId, topicId } = req.params;
 
-  if (!mongoose.Types.ObjectId.isValid(topicId)) {
+  await ensureClassroomAccess({
+    classroomId,
+    user: req.user,
+    requireFaculty: true
+  });
+
+  if (!isValidObjectId(topicId)) {
     return next(new AppError('Invalid topicId', 400));
   }
 
@@ -136,17 +621,14 @@ export const deleteTopic = catchAsync(async (req, res, next) => {
   session.startTransaction();
 
   try {
-    // 1. Get or create the default topic for migration
     const defaultTopic = await getOrCreateTopic(classroomId, session);
 
-    // 2. Move all posts from the deleting topic to the default topic
     await ClassroomPost.updateMany(
       { classroomId, topicId: topic._id },
       { topicId: defaultTopic._id },
       { session }
     );
 
-    // 3. Delete the topic
     await Topic.findByIdAndDelete(topicId).session(session);
 
     await session.commitTransaction();
@@ -162,10 +644,8 @@ export const deleteTopic = catchAsync(async (req, res, next) => {
   }
 });
 
-// ================= POST =================
 export const createPost = catchAsync(async (req, res, next) => {
   const { classroomId } = req.params;
-
   const {
     type,
     title,
@@ -175,141 +655,115 @@ export const createPost = catchAsync(async (req, res, next) => {
     isUngraded,
     dueDate,
     submissionType,
+    allowLateSubmission,
     quizData,
-    options
+    attachments
   } = req.body;
 
-  const user = req.user;
+  await ensureClassroomAccess({
+    classroomId,
+    user: req.user,
+    requireFaculty: true
+  });
 
   if (!classroomId || !type) {
     return next(new AppError('classroomId and type are required', 400));
   }
 
-  if (!mongoose.Types.ObjectId.isValid(classroomId)) {
-    return next(new AppError('Invalid classroomId', 400));
-  }
-
   const allowedTypes = ['announcement', 'assignment', 'quiz', 'material'];
-
   if (!allowedTypes.includes(type)) {
     return next(new AppError('Invalid post type', 400));
-  }
-
-  if (user.role === 'student' && type !== 'announcement') {
-    return next(new AppError('Students can only create announcements', 403));
-  }
-
-  // ================= ATTACHMENTS =================
-  let attachments = [];
-  if (req.file) {
-    attachments.push({
-      fileName: req.file.originalname,
-      fileUrl: `/pdf/${req.file.filename}`,
-      fileType: req.file.mimetype
-    });
-  }
-
-  if (req.body.attachments) {
-    let parsedAttachments = req.body.attachments;
-    if (typeof parsedAttachments === 'string') {
-      parsedAttachments = JSON.parse(parsedAttachments);
-    }
-    if (Array.isArray(parsedAttachments)) {
-      parsedAttachments.forEach((att) => {
-        if (att.fileUrl) {
-          attachments.push({
-            fileName: att.fileName || 'link',
-            fileUrl: att.fileUrl,
-            fileType: att.fileType || 'link'
-          });
-        }
-      });
-    }
   }
 
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    // ================= TOPIC =================
-    let topic;
-    if (!topicId) {
-      topic = await getOrCreateTopic(classroomId, session);
+    let finalTopic;
+    if (!topicId || !isValidObjectId(topicId)) {
+      finalTopic = await getOrCreateTopic(classroomId, session);
     } else {
-      topic = await Topic.findOne({ _id: topicId, classroomId }).session(
-        session
-      );
-      if (!topic) {
-        topic = await getOrCreateTopic(classroomId, session);
-      }
+      finalTopic =
+        (await Topic.findOne({ _id: topicId, classroomId }).session(session)) ||
+        (await getOrCreateTopic(classroomId, session));
     }
 
-    // ================= BASE POST =================
-    const post = await ClassroomPost.create(
+    const parsedAttachments = normalizeLinkedAttachments(
+      parseMaybeJson(attachments, [])
+    );
+    const uploadedAttachments = req.file
+      ? normalizeUploadedAttachments([req.file])
+      : [];
+
+    const [post] = await ClassroomPost.create(
       [
         {
           classroomId,
-          createdBy: user._id,
-          createdByRole: user.role,
+          createdBy: req.user._id,
+          createdByRole: normalizeCreatorRole(req.user.role),
           type,
-          title,
-          instructions,
-          topicId: topic._id,
-          attachments
+          title: title || '',
+          instructions: instructions || '',
+          topicId: finalTopic._id,
+          attachments: [...uploadedAttachments, ...parsedAttachments]
         }
       ],
       { session }
     );
 
-    const postId = post[0]._id;
-
-    // ================= ASSIGNMENT =================
     if (type === 'assignment') {
       await Assignment.create(
         [
           {
-            postId,
-            points: isUngraded ? null : Number(points),
-            isUngraded: !!isUngraded,
-            dueDate,
-            submissionType
+            postId: post._id,
+            points:
+              isUngraded === 'true' || isUngraded === true
+                ? null
+                : Number(points || 0),
+            isUngraded: isUngraded === 'true' || isUngraded === true,
+            dueDate: dueDate || null,
+            submissionType: submissionType || 'any',
+            allowLateSubmission:
+              allowLateSubmission === undefined
+                ? true
+                : allowLateSubmission === 'true' || allowLateSubmission === true
           }
         ],
         { session }
       );
     }
 
-    // ================= UPDATED QUIZ LOGIC =================
     if (type === 'quiz') {
-      const qData = JSON.parse(quizData);
-      if (!qData || !qData.questions) {
-        throw new AppError(
-          'Quiz data and questions are required for quiz type',
-          400
-        );
+      const normalizedQuizData = parseMaybeJson(quizData, {});
+      if (
+        !normalizedQuizData?.questions ||
+        !Array.isArray(normalizedQuizData.questions)
+      ) {
+        throw new AppError('Quiz data and questions are required', 400);
       }
 
       await Quiz.create(
         [
           {
-            postId,
+            postId: post._id,
+            dueDate: dueDate || null,
             isAutoGraded:
-              qData.isAutoGraded !== undefined ? qData.isAutoGraded : true,
-            questions: qData.questions,
-            dueDate
-            /**
-             * Note: The Quiz model 'pre-save' hook will automatically
-             * calculate totalMarks based on the points in each question.
-             */
+              normalizedQuizData.isAutoGraded === undefined
+                ? true
+                : !!normalizedQuizData.isAutoGraded,
+            questions: normalizedQuizData.questions,
+            allowLateSubmission:
+              allowLateSubmission === undefined
+                ? true
+                : allowLateSubmission === 'true' || allowLateSubmission === true
           }
         ],
         { session }
       );
     }
 
-    // ================= MATERIAL =================
     if (type === 'material') {
-      await Material.create([{ postId }], { session });
+      await Material.create([{ postId: post._id }], { session });
     }
 
     await session.commitTransaction();
@@ -317,126 +771,130 @@ export const createPost = catchAsync(async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Post created successfully',
-      data: { post: post[0] }
+      data: { post }
     });
-  } catch (err) {
+  } catch (error) {
     await session.abortTransaction();
-    return next(err);
+    return next(error);
   } finally {
     session.endSession();
   }
 });
 
 export const updatePost = catchAsync(async (req, res, next) => {
-  const { postId } = req.params;
-  let updates = { ...req.body };
+  const { classroomId, postId } = req.params;
 
-  if (!mongoose.Types.ObjectId.isValid(postId)) {
-    return next(new AppError('Invalid postId', 400));
-  }
+  await ensureClassroomAccess({
+    classroomId,
+    user: req.user,
+    requireFaculty: true
+  });
 
-  const post = await ClassroomPost.findById(postId);
+  const post = await ClassroomPost.findOne({
+    _id: postId,
+    classroomId
+  });
 
-  if (!post || post.isDeleted) {
+  if (!post) {
     return next(new AppError('Post not found', 404));
   }
 
-  if (post.createdBy.toString() !== req.user._id.toString()) {
+  const isOwner = String(post.createdBy) === String(req.user._id);
+  const isPrivileged = req.user.role === 'ADMIN' || req.user.role === 'HOD';
+
+  if (!isOwner && !isPrivileged) {
     return next(new AppError('Not authorized to update this post', 403));
   }
 
-  // ================= ATTACHMENTS =================
-  if (updates.attachments) {
-    if (typeof updates.attachments === 'string') {
-      try {
-        updates.attachments = JSON.parse(updates.attachments);
-      } catch (err) {
-        return next(new AppError('Invalid attachments format', 400));
-      }
-    }
-    if (!Array.isArray(updates.attachments)) {
-      updates.attachments = [];
-    }
-  }
-
-  if (req.file) {
-    if (!updates.attachments) updates.attachments = [];
-    updates.attachments.push({
-      fileName: req.file.originalname,
-      fileUrl: `/pdf/${req.file.filename}`,
-      fileType: req.file.mimetype
-    });
-  }
-
+  const updates = { ...req.body };
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    // ================= TOPIC UPDATE =================
-    if (updates.topicId) {
-      let topic;
-      if (!mongoose.Types.ObjectId.isValid(updates.topicId)) {
-        topic = await getOrCreateTopic(post.classroomId, session);
-      } else {
-        topic = await Topic.findOne({
-          _id: updates.topicId,
-          classroomId: post.classroomId
-        }).session(session);
+    if (Object.prototype.hasOwnProperty.call(updates, 'topicId')) {
+      const nextTopic =
+        (isValidObjectId(updates.topicId)
+          ? await Topic.findOne({
+              _id: updates.topicId,
+              classroomId: post.classroomId
+            }).session(session)
+          : null) || (await getOrCreateTopic(post.classroomId, session));
 
-        if (!topic) {
-          topic = await getOrCreateTopic(post.classroomId, session);
-        }
-      }
-      post.topicId = topic._id;
+      post.topicId = nextTopic._id;
     }
 
-    // ================= BASE POST UPDATE =================
-    const baseFields = ['title', 'instructions', 'attachments'];
-    baseFields.forEach((key) => {
-      if (updates[key] !== undefined) {
-        post[key] = updates[key];
-      }
-    });
+    const linkedAttachments = normalizeLinkedAttachments(
+      parseMaybeJson(updates.attachments, post.attachments || [])
+    );
+    const uploadedAttachments = req.file
+      ? normalizeUploadedAttachments([req.file])
+      : [];
+
+    if (updates.title !== undefined) post.title = updates.title;
+    if (updates.instructions !== undefined) post.instructions = updates.instructions;
+    if (updates.attachments !== undefined || req.file) {
+      post.attachments = [...linkedAttachments, ...uploadedAttachments];
+    }
 
     await post.save({ session });
 
-    // ================= TYPE-SPECIFIC UPDATE =================
-    const type = post.type;
-
-    if (type === 'assignment') {
+    if (post.type === 'assignment') {
       const assignment = await Assignment.findOne({ postId }).session(session);
       if (assignment) {
-        if ('points' in updates)
-          assignment.points = updates.isUngraded
-            ? null
-            : Number(updates.points);
-        if ('isUngraded' in updates) assignment.isUngraded = updates.isUngraded;
-        if ('dueDate' in updates) assignment.dueDate = updates.dueDate;
-        if ('submissionType' in updates)
-          assignment.submissionType = updates.submissionType;
+        if (updates.points !== undefined) {
+          assignment.points =
+            updates.isUngraded === 'true' || updates.isUngraded === true
+              ? null
+              : Number(updates.points || 0);
+        }
+        if (updates.isUngraded !== undefined) {
+          assignment.isUngraded =
+            updates.isUngraded === 'true' || updates.isUngraded === true;
+          if (assignment.isUngraded) {
+            assignment.points = null;
+          }
+        }
+        if (updates.dueDate !== undefined) assignment.dueDate = updates.dueDate || null;
+        if (updates.submissionType !== undefined) {
+          assignment.submissionType = updates.submissionType || 'any';
+        }
+        if (updates.allowLateSubmission !== undefined) {
+          assignment.allowLateSubmission =
+            updates.allowLateSubmission === 'true' ||
+            updates.allowLateSubmission === true;
+        }
 
         await assignment.save({ session });
       }
     }
 
-    // UPDATED QUIZ LOGIC
-    if (type === 'quiz') {
+    if (post.type === 'quiz') {
       const quiz = await Quiz.findOne({ postId }).session(session);
       if (quiz) {
+        const normalizedQuizData =
+          parseMaybeJson(updates.quizData, null) ||
+          (Array.isArray(updates.questions)
+            ? { questions: updates.questions }
+            : null);
+
+        if (normalizedQuizData?.questions) {
+          quiz.questions = normalizedQuizData.questions;
+        }
+
+        if (normalizedQuizData?.isAutoGraded !== undefined) {
+          quiz.isAutoGraded = !!normalizedQuizData.isAutoGraded;
+        }
+
         if (updates.isAutoGraded !== undefined) {
-          quiz.isAutoGraded = updates.isAutoGraded;
+          quiz.isAutoGraded =
+            updates.isAutoGraded === 'true' || updates.isAutoGraded === true;
         }
 
-        if (updates.questions && Array.isArray(updates.questions)) {
-          quiz.questions = updates.questions;
-        }
-
-        if (updates.dueDate !== undefined) {
-          quiz.dueDate = updates.dueDate;
-        }
-
+        if (updates.dueDate !== undefined) quiz.dueDate = updates.dueDate || null;
         if (updates.allowLateSubmission !== undefined) {
-          quiz.allowLateSubmission = updates.allowLateSubmission;
+          quiz.allowLateSubmission =
+            updates.allowLateSubmission === 'true' ||
+            updates.allowLateSubmission === true;
         }
 
         await quiz.save({ session });
@@ -448,11 +906,11 @@ export const updatePost = catchAsync(async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: 'Post updated successfully',
-      data: post
+      data: { post }
     });
-  } catch (err) {
+  } catch (error) {
     await session.abortTransaction();
-    return next(err);
+    return next(error);
   } finally {
     session.endSession();
   }
@@ -461,11 +919,16 @@ export const updatePost = catchAsync(async (req, res, next) => {
 export const deletePost = catchAsync(async (req, res, next) => {
   const { classroomId, postId } = req.params;
 
-  if (!mongoose.Types.ObjectId.isValid(postId)) {
+  await ensureClassroomAccess({
+    classroomId,
+    user: req.user,
+    requireFaculty: true
+  });
+
+  if (!isValidObjectId(postId)) {
     return next(new AppError('Invalid postId', 400));
   }
 
-  // Find the post and ensure it belongs to the specified classroom
   const post = await ClassroomPost.findOne({ _id: postId, classroomId });
 
   if (!post) {
@@ -476,40 +939,29 @@ export const deletePost = catchAsync(async (req, res, next) => {
   session.startTransaction();
 
   try {
-    // 1. Delete associated child documents based on the post type
-    switch (post.type) {
-      case 'assignment':
-        await Assignment.findOneAndDelete({ postId: post._id }).session(
-          session
-        );
-        break;
-      case 'quiz':
-        await Quiz.findOneAndDelete({ postId: post._id }).session(session);
-        break;
-      case 'material':
-        await Material.findOneAndDelete({ postId: post._id }).session(session);
-        break;
-      default:
-        // 'announcement' has no extra child document to delete
-        break;
+    if (post.type === 'assignment') {
+      await Assignment.findOneAndDelete({ postId: post._id }).session(session);
     }
 
-    // 2. Delete all comments associated with this post
-    await Comment.deleteMany({ postId: post._id }).session(session);
+    if (post.type === 'quiz') {
+      await Quiz.findOneAndDelete({ postId: post._id }).session(session);
+    }
 
-    /**
-     * Note: If you eventually implement a 'Submission' model for
-     * assignments or quizzes, you should also add:
-     * await Submission.deleteMany({ postId: post._id }).session(session);
-     */
+    if (post.type === 'material') {
+      await Material.findOneAndDelete({ postId: post._id }).session(session);
+    }
 
-    // 3. Delete the main post
-    await ClassroomPost.findByIdAndDelete(postId).session(session);
+    await Promise.all([
+      Comment.deleteMany({ postId: post._id }).session(session),
+      Submission.deleteMany({ postId: post._id }).session(session),
+      ClassroomPost.findByIdAndDelete(postId).session(session)
+    ]);
 
     await session.commitTransaction();
+
     res.status(200).json({
       success: true,
-      message: `Post (${post.type}) and all associated child data/comments deleted successfully`
+      message: `Post (${post.type}) and all associated data deleted successfully`
     });
   } catch (error) {
     await session.abortTransaction();
@@ -518,422 +970,306 @@ export const deletePost = catchAsync(async (req, res, next) => {
     session.endSession();
   }
 });
-// ================= STREAM =================
+
 export const getStream = catchAsync(async (req, res, next) => {
   const { classroomId } = req.params;
 
-  if (!mongoose.Types.ObjectId.isValid(classroomId)) {
-    return next(new AppError('Invalid classroomId', 400));
-  }
+  const classroom = await ensureClassroomAccess({
+    classroomId,
+    user: req.user
+  });
 
-  const stream = await ClassroomPost.aggregate([
-    {
-      $match: {
-        classroomId: new mongoose.Types.ObjectId(classroomId)
-      }
-    },
+  const posts = await ClassroomPost.find({ classroomId })
+    .populate('topicId', 'name isDefault')
+    .sort({ createdAt: -1 })
+    .lean();
 
-    // ================= USER =================
-    {
-      $lookup: {
-        from: 'users',
-        localField: 'createdBy',
-        foreignField: '_id',
-        as: 'user'
-      }
-    },
-    { $unwind: '$user' },
+  const stream = await hydratePosts({
+    classroom,
+    posts,
+    user: req.user
+  });
 
-    // ================= FACULTY =================
-    {
-      $lookup: {
-        from: 'faculties',
-        localField: 'user._id',
-        foreignField: 'userId',
-        as: 'faculty'
-      }
-    },
-
-    // ================= STUDENT =================
-    {
-      $lookup: {
-        from: 'students',
-        localField: 'user._id',
-        foreignField: 'userId',
-        as: 'student'
-      }
-    },
-
-    // ================= MERGE =================
-    {
-      $addFields: {
-        createdByUser: {
-          $cond: [
-            { $eq: ['$createdByRole', 'FACULTY'] },
-            { $arrayElemAt: ['$faculty', 0] },
-            { $arrayElemAt: ['$student', 0] }
-          ]
-        }
-      }
-    },
-
-    // ================= ASSIGNMENT =================
-    {
-      $lookup: {
-        from: 'assignments',
-        localField: '_id',
-        foreignField: 'postId',
-        as: 'assignment'
-      }
-    },
-    { $unwind: { path: '$assignment', preserveNullAndEmptyArrays: true } },
-
-    // ================= QUIZ =================
-    {
-      $lookup: {
-        from: 'quizzes',
-        localField: '_id',
-        foreignField: 'postId',
-        as: 'quiz'
-      }
-    },
-    { $unwind: { path: '$quiz', preserveNullAndEmptyArrays: true } },
-
-    // ================= MATERIAL =================
-    {
-      $lookup: {
-        from: 'materials',
-        localField: '_id',
-        foreignField: 'postId',
-        as: 'material'
-      }
-    },
-    { $unwind: { path: '$material', preserveNullAndEmptyArrays: true } },
-
-    // ================= COMMENTS =================
-    {
-      $lookup: {
-        from: 'comments',
-        let: { postId: '$_id', type: '$type' },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $eq: ['$postId', '$$postId'] },
-                  { $eq: ['$$type', 'announcement'] }
-                ]
-              }
-            }
-          },
-          { $sort: { createdAt: -1 } },
-
-          // USER
-          {
-            $lookup: {
-              from: 'users',
-              localField: 'userId',
-              foreignField: '_id',
-              as: 'user'
-            }
-          },
-          { $unwind: '$user' },
-
-          // FACULTY
-          {
-            $lookup: {
-              from: 'faculties',
-              localField: 'user._id',
-              foreignField: 'userId',
-              as: 'faculty'
-            }
-          },
-
-          // STUDENT
-          {
-            $lookup: {
-              from: 'students',
-              localField: 'user._id',
-              foreignField: 'userId',
-              as: 'student'
-            }
-          },
-
-          {
-            $addFields: {
-              finalUser: {
-                $cond: [
-                  { $gt: [{ $size: '$faculty' }, 0] },
-                  { $arrayElemAt: ['$faculty', 0] },
-                  { $arrayElemAt: ['$student', 0] }
-                ]
-              }
-            }
-          },
-
-          {
-            $project: {
-              _id: 1,
-              message: 1,
-              createdAt: 1,
-              user: {
-                _id: '$finalUser._id',
-                firstName: '$finalUser.firstName',
-                lastName: '$finalUser.lastName'
-              }
-            }
-          }
-        ],
-        as: 'comments'
-      }
-    },
-
-    // ================= COMMENTS COUNT =================
-    {
-      $lookup: {
-        from: 'comments',
-        let: { postId: '$_id', type: '$type' },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $eq: ['$postId', '$$postId'] },
-                  { $eq: ['$$type', 'announcement'] }
-                ]
-              }
-            }
-          },
-          { $count: 'count' }
-        ],
-        as: 'commentsCount'
-      }
-    },
-
-    {
-      $addFields: {
-        comments: {
-          $cond: [{ $eq: ['$type', 'announcement'] }, '$comments', []]
-        },
-        commentsCount: {
-          $cond: [
-            { $eq: ['$type', 'announcement'] },
-            { $ifNull: [{ $arrayElemAt: ['$commentsCount.count', 0] }, 0] },
-            0
-          ]
-        }
-      }
-    },
-
-    {
-      $project: {
-        _id: 1,
-        type: 1,
-        title: 1,
-        instructions: 1,
-        attachments: 1,
-        createdAt: 1,
-        createdByRole: 1,
-
-        createdBy: {
-          _id: '$createdByUser._id',
-          firstName: '$createdByUser.firstName',
-          lastName: '$createdByUser.lastName'
-        },
-
-        assignment: 1,
-        quiz: 1,
-        material: 1,
-
-        comments: 1,
-        commentsCount: 1
-      }
-    },
-
-    { $sort: { createdAt: -1 } }
-  ]);
-
-  res.json({
+  res.status(200).json({
     success: true,
     data: { stream }
   });
 });
 
-// ================= CLASSWORK =================
 export const getClasswork = catchAsync(async (req, res, next) => {
   const { classroomId } = req.params;
 
-  if (!mongoose.Types.ObjectId.isValid(classroomId)) {
-    return next(new AppError('Invalid classroomId', 400));
-  }
+  const classroom = await ensureClassroomAccess({
+    classroomId,
+    user: req.user
+  });
 
-  const classwork = await Topic.aggregate([
-    {
-      $match: {
-        classroomId: new mongoose.Types.ObjectId(classroomId)
-      }
-    },
-
-    {
-      $lookup: {
-        from: 'classroomposts',
-        let: { topicId: '$_id' },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $eq: ['$topicId', '$$topicId'] },
-                  { $ne: ['$type', 'announcement'] }
-                ]
-              }
-            }
-          },
-
-          {
-            $lookup: {
-              from: 'users',
-              localField: 'createdBy',
-              foreignField: '_id',
-              as: 'user'
-            }
-          },
-          { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
-
-          {
-            $lookup: {
-              from: 'faculties',
-              localField: 'user._id',
-              foreignField: 'userId',
-              as: 'faculty'
-            }
-          },
-
-          // ================= STUDENT =================
-          {
-            $lookup: {
-              from: 'students',
-              localField: 'user._id',
-              foreignField: 'userId',
-              as: 'student'
-            }
-          },
-
-          {
-            $addFields: {
-              createdByUser: {
-                $cond: [
-                  { $eq: ['$createdByRole', 'FACULTY'] },
-                  { $arrayElemAt: ['$faculty', 0] },
-                  { $arrayElemAt: ['$student', 0] }
-                ]
-              }
-            }
-          },
-
-          {
-            $lookup: {
-              from: 'assignments',
-              localField: '_id',
-              foreignField: 'postId',
-              as: 'assignment'
-            }
-          },
-          {
-            $unwind: {
-              path: '$assignment',
-              preserveNullAndEmptyArrays: true
-            }
-          },
-
-          {
-            $lookup: {
-              from: 'quizzes',
-              localField: '_id',
-              foreignField: 'postId',
-              as: 'quiz'
-            }
-          },
-          {
-            $unwind: {
-              path: '$quiz',
-              preserveNullAndEmptyArrays: true
-            }
-          },
-
-          {
-            $lookup: {
-              from: 'materials',
-              localField: '_id',
-              foreignField: 'postId',
-              as: 'material'
-            }
-          },
-          {
-            $unwind: {
-              path: '$material',
-              preserveNullAndEmptyArrays: true
-            }
-          },
-
-          {
-            $project: {
-              _id: 1,
-              type: 1,
-              title: 1,
-              instructions: 1,
-              attachments: 1,
-              createdAt: 1,
-              createdByRole: 1,
-
-              createdBy: {
-                _id: '$createdByUser._id',
-                firstName: '$createdByUser.firstName',
-                lastName: '$createdByUser.lastName'
-              },
-
-              assignment: 1,
-              quiz: 1,
-              material: 1
-            }
-          },
-
-          { $sort: { createdAt: -1 } }
-        ],
-        as: 'posts'
-      }
-    },
-
-    {
-      $project: {
-        _id: 1,
-        name: 1,
-        isDefault: 1,
-        posts: 1
-      }
-    }
+  const [topics, posts] = await Promise.all([
+    Topic.find({ classroomId })
+      .select('_id name isDefault')
+      .sort({ isDefault: -1, createdAt: 1 })
+      .lean(),
+    ClassroomPost.find({
+      classroomId,
+      type: { $ne: 'announcement' }
+    })
+      .populate('topicId', 'name isDefault')
+      .sort({ createdAt: -1 })
+      .lean()
   ]);
 
-  res.json({
+  const hydratedPosts = await hydratePosts({
+    classroom,
+    posts,
+    user: req.user
+  });
+
+  const groupedPosts = new Map();
+  hydratedPosts.forEach((post) => {
+    const topicKey = post.topicId?._id ? String(post.topicId._id) : null;
+    if (!groupedPosts.has(topicKey)) {
+      groupedPosts.set(topicKey, []);
+    }
+    groupedPosts.get(topicKey).push(post);
+  });
+
+  const classwork = topics.map((topic) => ({
+    _id: topic._id,
+    name: topic.name,
+    isDefault: !!topic.isDefault,
+    posts: groupedPosts.get(String(topic._id)) || []
+  }));
+
+  res.status(200).json({
     success: true,
     data: { classwork }
   });
 });
 
-// ================= COMMENT =================
+export const getPostDetails = catchAsync(async (req, res, next) => {
+  const { classroomId, postId } = req.params;
+
+  const { classroom, post } = await getPostWithAccess({
+    classroomId,
+    postId,
+    user: req.user
+  });
+
+  const [hydratedPost] = await hydratePosts({
+    classroom,
+    posts: [post],
+    user: req.user
+  });
+
+  let submissionRoster = [];
+  if (
+    hydratedPost &&
+    facultyRoles.has(req.user.role) &&
+    (hydratedPost.type === 'assignment' || hydratedPost.type === 'quiz')
+  ) {
+    submissionRoster = await buildSubmissionRoster({
+      classroom,
+      post: hydratedPost
+    });
+  }
+
+  res.status(200).json({
+    success: true,
+    data: {
+      classroom: await getPopulatedClassroom(classroomId),
+      post: hydratedPost,
+      submissionRoster
+    }
+  });
+});
+
+export const submitPostSubmission = catchAsync(async (req, res, next) => {
+  const { classroomId, postId } = req.params;
+
+  if (req.user.role !== 'STUDENT') {
+    return next(new AppError('Only students can submit work', 403));
+  }
+
+  const { post } = await getPostWithAccess({
+    classroomId,
+    postId,
+    user: req.user
+  });
+
+  const existingSubmission = await Submission.findOne({
+    postId,
+    studentId: req.user._id
+  });
+
+  if (existingSubmission?.submittedAt) {
+    return next(
+      new AppError(
+        'Submission already completed. Resubmission is not allowed.',
+        409
+      )
+    );
+  }
+
+  const linkedAttachments = normalizeLinkedAttachments(
+    parseMaybeJson(req.body.attachments, existingSubmission?.attachments || [])
+  );
+  const uploadedAttachments = normalizeUploadedAttachments(req.files || []);
+  const attachments = [...linkedAttachments, ...uploadedAttachments];
+  const textSubmission = req.body.textSubmission || '';
+  const linkSubmission = req.body.linkSubmission || '';
+
+  if (post.type === 'assignment') {
+    const assignment = await Assignment.findOne({ postId });
+    if (!assignment) {
+      return next(new AppError('Assignment not found', 404));
+    }
+
+    const isLate = validateDueDateWindow({
+      dueDate: assignment.dueDate,
+      allowLateSubmission: assignment.allowLateSubmission
+    });
+
+    validateAssignmentSubmission({
+      assignment,
+      attachments,
+      linkSubmission,
+      textSubmission
+    });
+
+    const submission =
+      existingSubmission ||
+      new Submission({
+        postId,
+        assignmentId: assignment._id,
+        submissionType: 'assignment',
+        studentId: req.user._id
+      });
+
+    submission.assignmentId = assignment._id;
+    submission.quizId = null;
+    submission.submissionType = 'assignment';
+    submission.attachments = attachments;
+    submission.textSubmission = textSubmission;
+    submission.linkSubmission = linkSubmission;
+    submission.quizAnswers = [];
+    submission.isLate = isLate;
+    submission.submittedAt = new Date();
+    submission.status = 'submitted';
+    submission.marks =
+      existingSubmission?.status === 'graded' ? existingSubmission.marks : null;
+
+    await submission.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Assignment submitted successfully',
+      data: { submission: serializeSubmission(submission.toObject()) }
+    });
+  }
+
+  if (post.type === 'quiz') {
+    const quiz = await Quiz.findOne({ postId });
+    if (!quiz) {
+      return next(new AppError('Quiz not found', 404));
+    }
+
+    const quizAnswers = normalizeQuizAnswers(req.body.quizAnswers);
+    if (!quizAnswers.length) {
+      return next(new AppError('Quiz answers are required', 400));
+    }
+
+    const isLate = validateDueDateWindow({
+      dueDate: quiz.dueDate,
+      allowLateSubmission: quiz.allowLateSubmission
+    });
+
+    const marks = quiz.isAutoGraded
+      ? gradeQuizSubmission(quiz, quizAnswers)
+      : null;
+
+    const submission =
+      existingSubmission ||
+      new Submission({
+        postId,
+        quizId: quiz._id,
+        submissionType: 'quiz',
+        studentId: req.user._id
+      });
+
+    submission.assignmentId = null;
+    submission.quizId = quiz._id;
+    submission.submissionType = 'quiz';
+    submission.attachments = [];
+    submission.textSubmission = '';
+    submission.linkSubmission = '';
+    submission.quizAnswers = quizAnswers;
+    submission.isLate = isLate;
+    submission.submittedAt = new Date();
+    submission.status = quiz.isAutoGraded ? 'graded' : 'submitted';
+    submission.marks = marks;
+
+    await submission.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Quiz submitted successfully',
+      data: { submission: serializeSubmission(submission.toObject()) }
+    });
+  }
+
+  return next(new AppError('This post does not accept submissions', 400));
+});
+
+export const getPostSubmissions = catchAsync(async (req, res, next) => {
+  const { classroomId, postId } = req.params;
+
+  await ensureClassroomAccess({
+    classroomId,
+    user: req.user,
+    requireFaculty: true
+  });
+
+  const { classroom, post } = await getPostWithAccess({
+    classroomId,
+    postId,
+    user: req.user
+  });
+
+  const [hydratedPost] = await hydratePosts({
+    classroom,
+    posts: [post],
+    user: req.user
+  });
+
+  const submissionRoster = await buildSubmissionRoster({
+    classroom,
+    post: hydratedPost
+  });
+
+  res.status(200).json({
+    success: true,
+    data: {
+      post: hydratedPost,
+      submissionRoster
+    }
+  });
+});
+
 export const addComment = catchAsync(async (req, res, next) => {
   const { classroomId, postId } = req.params;
   const { message } = req.body;
 
-  if (!message || !message.trim()) {
+  await ensureClassroomAccess({
+    classroomId,
+    user: req.user
+  });
+
+  if (!message || !stripHtml(message)) {
     return next(new AppError('Message is required', 400));
   }
 
-  if (
-    !mongoose.Types.ObjectId.isValid(classroomId) ||
-    !mongoose.Types.ObjectId.isValid(postId)
-  ) {
-    return next(new AppError('Invalid ids', 400));
+  if (!isValidObjectId(postId)) {
+    return next(new AppError('Invalid postId', 400));
   }
 
   const post = await ClassroomPost.findOne({
@@ -945,38 +1281,37 @@ export const addComment = catchAsync(async (req, res, next) => {
     return next(new AppError('Post not found in this classroom', 404));
   }
 
-  if (post.allowComments === false) {
-    return next(new AppError('Comments are disabled for this post', 403));
-  }
-
   const comment = await Comment.create({
     postId,
     userId: req.user._id,
-    message: message.trim()
+    message: String(message).trim()
   });
 
-  const populatedComment = await Comment.findById(comment._id)
-    .populate('userId', 'firstName lastName')
-    .lean();
+  const authorMap = await getAuthorProfiles([req.user._id]);
 
   res.status(201).json({
     success: true,
     message: 'Comment added successfully',
     data: {
       comment: {
-        _id: populatedComment._id,
-        message: populatedComment.message,
-        createdAt: populatedComment.createdAt,
-        user: populatedComment.userId
+        _id: comment._id,
+        message: comment.message,
+        createdAt: comment.createdAt,
+        user: authorMap.get(String(req.user._id)) || null
       }
     }
   });
 });
 
 export const deleteComment = catchAsync(async (req, res, next) => {
-  const { commentId } = req.params;
+  const { classroomId, commentId } = req.params;
 
-  if (!mongoose.Types.ObjectId.isValid(commentId)) {
+  await ensureClassroomAccess({
+    classroomId,
+    user: req.user
+  });
+
+  if (!isValidObjectId(commentId)) {
     return next(new AppError('Invalid commentId', 400));
   }
 
@@ -986,10 +1321,10 @@ export const deleteComment = catchAsync(async (req, res, next) => {
     return next(new AppError('Comment not found', 404));
   }
 
-  const isOwner = comment.userId.toString() === req.user._id.toString();
-  const isFaculty = req.user.role === 'FACULTY';
+  const isOwner = String(comment.userId) === String(req.user._id);
+  const canManage = isOwner || facultyRoles.has(req.user.role);
 
-  if (!isOwner && !isFaculty) {
+  if (!canManage) {
     return next(new AppError('Not authorized to delete this comment', 403));
   }
 

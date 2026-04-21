@@ -23,13 +23,6 @@ const subjectSchema = new mongoose.Schema(
       trim: true
     },
 
-    departmentId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Department',
-      required: true,
-      index: true
-    },
-
     regulationId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Regulation',
@@ -86,9 +79,6 @@ subjectSchema.virtual('components', {
 subjectSchema.set('toObject', { virtuals: true });
 subjectSchema.set('toJSON', { virtuals: true });
 
-subjectSchema.index(
-  { departmentId: 1, regulationId: 1, code: 1 },
-  { unique: true }
-);
+subjectSchema.index({ regulationId: 1, code: 1 }, { unique: true });
 
 export default mongoose.model('Subject', subjectSchema);

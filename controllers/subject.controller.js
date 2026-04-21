@@ -1,7 +1,6 @@
 import mongoose from 'mongoose';
 import Subject from '../models/Subject.js';
 import SubjectComponent from '../models/SubjectComponent.js';
-import Department from '../models/Department.js';
 import Regulation from '../models/Regulation.js';
 import BatchProgram from '../models/BatchProgram.js';
 import Curriculum from '../models/Curriculum.js';
@@ -10,8 +9,61 @@ import AppError from '../utils/AppError.js';
 import catchAsync from '../utils/catchAsync.js';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+const allowedSubjectUpdateFields = new Set([
+  'name',
+  'shortName',
+  'code',
+  'credits',
+  'deliveryType',
+  'courseCategory',
+  'regulationId',
+  'isActive'
+]);
 
-const createSubjectComponents = async (
+const subjectComponentsPopulate = {
+  path: 'components',
+  select: 'name shortName componentType hours isActive'
+};
+
+const normalizeSubjectPayload = ({ name, shortName, code }) => ({
+  normalizedName: name.trim(),
+  normalizedShortName: shortName.toUpperCase().trim(),
+  normalizedCode: code.toUpperCase().trim()
+});
+
+const ensureUniqueSubject = async ({
+  regulationId,
+  name,
+  code,
+  excludeSubjectId,
+  session
+}) => {
+  const filter = {
+    regulationId,
+    $or: [{ code }, { name }]
+  };
+
+  if (excludeSubjectId) {
+    filter._id = { $ne: excludeSubjectId };
+  }
+
+  let query = Subject.findOne(filter);
+
+  if (session) {
+    query = query.session(session);
+  }
+
+  const duplicate = await query;
+
+  if (duplicate) {
+    throw new AppError(
+      'Subject with same code or name already exists in this regulation',
+      409
+    );
+  }
+};
+
+const buildSubjectComponents = (
   subject,
   lectureHours,
   practicalHours,
@@ -109,8 +161,26 @@ const createSubjectComponents = async (
       break;
   }
 
+  return components;
+};
+
+const createSubjectComponents = async (
+  subject,
+  lectureHours,
+  practicalHours,
+  projectHours,
+  session
+) => {
+  const components = buildSubjectComponents(
+    subject,
+    lectureHours,
+    practicalHours,
+    projectHours
+  );
+
   if (components.length) {
-    await SubjectComponent.insertMany(components);
+    const options = session ? { session } : undefined;
+    await SubjectComponent.insertMany(components, options);
   }
 };
 
@@ -122,7 +192,6 @@ export const createSubject = catchAsync(async (req, res, next) => {
     credits,
     deliveryType,
     courseCategory,
-    departmentId,
     regulationId,
     lectureHours,
     practicalHours,
@@ -130,52 +199,39 @@ export const createSubject = catchAsync(async (req, res, next) => {
     isActive
   } = req.body;
 
-  if (!name || !shortName || !code || !departmentId || !regulationId) {
+  if (!name || !shortName || !code || !regulationId) {
     return res.status(400).json({
       success: false,
-      message: 'name, shortName, code, departmentId, regulationId required',
+      message: 'name, shortName, code, regulationId required',
       data: {}
     });
   }
 
-  if (!isValidObjectId(departmentId) || !isValidObjectId(regulationId)) {
-    return next(new AppError('Invalid departmentId or regulationId', 400));
+  if (!isValidObjectId(regulationId)) {
+    return next(new AppError('Invalid regulationId', 400));
   }
-
-  const department = await Department.findById(departmentId);
-  if (!department) return next(new AppError('Department not found', 400));
 
   const regulation = await Regulation.findById(regulationId);
   if (!regulation) return next(new AppError('Regulation not found', 400));
 
-  const normalizedName = name.trim();
-  const normalizedCode = code.toUpperCase().trim();
+  const { normalizedName, normalizedShortName, normalizedCode } =
+    normalizeSubjectPayload({ name, shortName, code });
 
-  const duplicate = await Subject.findOne({
-    departmentId,
+  await ensureUniqueSubject({
     regulationId,
-    $or: [{ code: normalizedCode }, { name: normalizedName }]
+    name: normalizedName,
+    code: normalizedCode
   });
-
-  if (duplicate) {
-    return next(
-      new AppError(
-        'Subject with same code or name already exists in this regulation',
-        409
-      )
-    );
-  }
 
   const subject = await Subject.create({
     name: normalizedName,
-    shortName,
+    shortName: normalizedShortName,
     code: normalizedCode,
     credits,
     deliveryType,
     courseCategory,
-    departmentId,
     regulationId,
-    isActive: isActive || true
+    isActive: isActive ?? true
   });
 
   await createSubjectComponents(
@@ -190,8 +246,8 @@ export const createSubject = catchAsync(async (req, res, next) => {
   });
 
   const populated = await Subject.findById(subject._id)
-    .populate('departmentId', 'name code program')
-    .populate('regulationId', 'name startYear');
+    .populate('regulationId', 'name startYear')
+    .populate(subjectComponentsPopulate);
 
   return res.status(201).json({
     success: true,
@@ -204,23 +260,18 @@ export const createSubject = catchAsync(async (req, res, next) => {
 });
 
 export const getAllSubjects = catchAsync(async (req, res, next) => {
-  const { departmentId, regulationId, deliveryType, isActive } = req.query;
+  const { regulationId, deliveryType, isActive } = req.query;
 
   const filter = {};
 
-  if (departmentId) filter.departmentId = departmentId;
   if (regulationId) filter.regulationId = regulationId;
   if (deliveryType) filter.deliveryType = deliveryType;
 
   if (isActive !== undefined) filter.isActive = String(isActive) === 'true';
 
   const subjects = await Subject.find(filter)
-    .populate('departmentId', 'name code program')
     .populate('regulationId', 'name startYear')
-    .populate({
-      path: 'components',
-      select: 'name shortName componentType hours isActive'
-    })
+    .populate(subjectComponentsPopulate)
     .sort({ code: 1 });
 
   return res.json({
@@ -236,9 +287,10 @@ export const getSubjectById = catchAsync(async (req, res, next) => {
   if (!isValidObjectId(id))
     return next(new AppError('Invalid subject id', 400));
 
-  const subject = await Subject.findById(id)
-    .populate('departmentId', 'name code program')
-    .populate('regulationId', 'name startYear');
+  const subject = await Subject.findById(id).populate(
+    'regulationId',
+    'name startYear'
+  );
 
   if (!subject) return next(new AppError('Subject not found', 404));
 
@@ -255,15 +307,11 @@ export const uploadMultipleSubjects = catchAsync(async (req, res, next) => {
   if (!req.file) {
     return next(new AppError('Excel file is required', 400));
   }
+  const { regulationId } = req.params;
 
-  const { departmentId, regulationId } = req.params;
-
-  if (!isValidObjectId(departmentId) || !isValidObjectId(regulationId)) {
-    return next(new AppError('Invalid departmentId or regulationId', 400));
+  if (!isValidObjectId(regulationId)) {
+    return next(new AppError('Invalid regulationId', 400));
   }
-
-  const department = await Department.findById(departmentId);
-  if (!department) return next(new AppError('Department not found', 404));
 
   const regulation = await Regulation.findById(regulationId);
   if (!regulation) return next(new AppError('Regulation not found', 404));
@@ -295,7 +343,10 @@ export const uploadMultipleSubjects = catchAsync(async (req, res, next) => {
     'Internship'
   ];
 
-  const seen = new Set();
+  const seenCodes = new Set();
+  const seenNames = new Set();
+  const normalizedCodes = [];
+  const normalizedNames = [];
 
   for (let i = 0; i < rows.length; i++) {
     const rowNumber = i + 2;
@@ -335,9 +386,7 @@ export const uploadMultipleSubjects = catchAsync(async (req, res, next) => {
       continue;
     }
 
-    const key = `${code}`;
-
-    if (seen.has(key)) {
+    if (seenCodes.has(code)) {
       errors.push({
         row: rowNumber,
         error: 'Duplicate subject code inside Excel'
@@ -345,9 +394,22 @@ export const uploadMultipleSubjects = catchAsync(async (req, res, next) => {
       continue;
     }
 
-    seen.add(key);
+    if (seenNames.has(name)) {
+      errors.push({
+        row: rowNumber,
+        error: 'Duplicate subject name inside Excel'
+      });
+      continue;
+    }
+
+    seenCodes.add(code);
+    seenNames.add(name);
+    normalizedCodes.push(code);
+    normalizedNames.push(name);
 
     validatedRows.push({
+      rowNumber,
+      _id: new mongoose.Types.ObjectId(),
       name,
       shortName,
       code,
@@ -368,46 +430,77 @@ export const uploadMultipleSubjects = catchAsync(async (req, res, next) => {
     });
   }
 
+  const existingSubjects = await Subject.find({
+    regulationId,
+    $or: [
+      { code: { $in: normalizedCodes } },
+      { name: { $in: normalizedNames } }
+    ]
+  })
+    .select('name code')
+    .lean();
+
+  if (existingSubjects.length) {
+    const existingCodes = new Set(
+      existingSubjects.map((subject) => subject.code)
+    );
+    const existingNames = new Set(
+      existingSubjects.map((subject) => subject.name)
+    );
+
+    const duplicateRows = validatedRows
+      .filter(
+        (row) => existingCodes.has(row.code) || existingNames.has(row.name)
+      )
+      .map((row) => ({
+        row: row.rowNumber,
+        error: `Duplicate subject found: ${row.name} (${row.code})`
+      }));
+
+    return res.status(409).json({
+      success: false,
+      message: 'Duplicate subjects already exist in this regulation',
+      errors: duplicateRows
+    });
+  }
+
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    for (const row of validatedRows) {
-      const duplicate = await Subject.findOne({
-        departmentId,
-        regulationId,
-        $or: [{ code: row.code }, { name: row.name }]
-      }).session(session);
+    await Subject.insertMany(
+      validatedRows.map((row) => ({
+        _id: row._id,
+        name: row.name,
+        shortName: row.shortName,
+        code: row.code,
+        credits: row.credits,
+        deliveryType: row.deliveryType,
+        courseCategory: row.courseCategory,
+        regulationId
+      })),
+      { session, ordered: true }
+    );
 
-      if (duplicate) {
-        throw new AppError(
-          `Duplicate subject found: ${row.name} (${row.code})`,
-          409
-        );
-      }
-
-      const subject = await Subject.create(
-        [
-          {
-            name: row.name,
-            shortName: row.shortName,
-            code: row.code,
-            credits: row.credits,
-            deliveryType: row.deliveryType,
-            courseCategory: row.courseCategory,
-            departmentId,
-            regulationId
-          }
-        ],
-        { session }
-      );
-
-      await createSubjectComponents(
-        subject[0],
+    const components = validatedRows.flatMap((row) =>
+      buildSubjectComponents(
+        {
+          _id: row._id,
+          name: row.name,
+          shortName: row.shortName,
+          deliveryType: row.deliveryType
+        },
         row.lectureHours,
         row.practicalHours,
         row.projectHours
-      );
+      )
+    );
+
+    if (components.length) {
+      await SubjectComponent.insertMany(components, {
+        session,
+        ordered: true
+      });
     }
 
     await session.commitTransaction();
@@ -434,14 +527,57 @@ export const updateSubject = catchAsync(async (req, res, next) => {
 
   if (!subject) return next(new AppError('Subject not found', 404));
 
-  Object.assign(subject, req.body);
+  const updates = Object.fromEntries(
+    Object.entries(req.body).filter(([key]) =>
+      allowedSubjectUpdateFields.has(key)
+    )
+  );
+
+  if (updates.regulationId !== undefined) {
+    if (!isValidObjectId(updates.regulationId)) {
+      return next(new AppError('Invalid regulationId', 400));
+    }
+
+    const regulation = await Regulation.findById(updates.regulationId);
+    if (!regulation) return next(new AppError('Regulation not found', 400));
+  }
+
+  const nextName =
+    updates.name !== undefined ? updates.name.trim() : subject.name;
+  const nextShortName =
+    updates.shortName !== undefined
+      ? updates.shortName.toUpperCase().trim()
+      : subject.shortName;
+  const nextCode =
+    updates.code !== undefined
+      ? updates.code.toUpperCase().trim()
+      : subject.code;
+  const nextRegulationId = updates.regulationId || subject.regulationId;
+
+  await ensureUniqueSubject({
+    regulationId: nextRegulationId,
+    name: nextName,
+    code: nextCode,
+    excludeSubjectId: subject._id
+  });
+
+  Object.assign(subject, {
+    ...updates,
+    name: nextName,
+    shortName: nextShortName,
+    code: nextCode
+  });
 
   await subject.save();
+
+  const populated = await Subject.findById(subject._id)
+    .populate('regulationId', 'name startYear')
+    .populate(subjectComponentsPopulate);
 
   return res.json({
     success: true,
     message: 'Subject updated successfully',
-    data: { subject }
+    data: { subject: populated }
   });
 });
 
@@ -497,12 +633,8 @@ export const getSubjectsForSemester = catchAsync(async (req, res, next) => {
   const subjects = await Subject.find({
     _id: { $in: semester.subjects }
   })
-    .populate('departmentId', 'name code program')
     .populate('regulationId', 'name startYear')
-    .populate({
-      path: 'components',
-      select: 'name shortName componentType hours isActive'
-    })
+    .populate(subjectComponentsPopulate)
     .sort({ code: 1 });
 
   return res.json({

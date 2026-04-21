@@ -18,7 +18,7 @@ router.use(protect);
 
 router.post('/', authorize('ADMIN'), createSubject);
 router.post(
-  '/upload/:departmentId/:regulationId',
+  '/upload/:regulationId',
   authorize('ADMIN'),
   upload.single('file'),
   uploadMultipleSubjects

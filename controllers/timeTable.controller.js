@@ -1,58 +1,385 @@
 import AcademicCalendar from '../models/AcademicCalendar.js';
 import AcademicYear from '../models/AcademicYear.js';
 import AdditionalHour from '../models/AdditionalHour.js';
+import Attendance from '../models/Attendance.js';
+import AttendanceRequest from '../models/AttendanceRequest.js';
+import Classroom from '../models/Classroom.js';
+import Faculty from '../models/Faculty.js';
 import FacultyAssignment from '../models/FacultyAssignment.js';
 import Section from '../models/Section.js';
+import SubjectComponent from '../models/SubjectComponent.js';
 import Timetable from '../models/Timetable.js';
 import TimetableEntry from '../models/TimetableEntry.js';
 import catchAsync from '../utils/catchAsync.js';
 import AppError from '../utils/AppError.js';
 import mongoose from 'mongoose';
 
+const toSubjectComponentPayload = (component) => {
+  if (!component) return null;
+  return {
+    _id: component._id,
+    name: component.name || '',
+    shortName: component.shortName || '',
+    componentType: component.componentType || ''
+  };
+};
+
+const toSubjectPayload = (subject) => {
+  if (!subject) return null;
+  return {
+    _id: subject._id,
+    name: subject.name || '',
+    code: subject.code || '',
+    shortName: subject.shortName || ''
+  };
+};
+
+const buildPeriodLabel = (slotOrder, component) => {
+  const componentName = component?.shortName || component?.name;
+  return componentName
+    ? `Period ${slotOrder} - ${componentName}`
+    : `Period ${slotOrder}`;
+};
+
 export const getTimetableEntriesForAttendance = catchAsync(
   async (req, res, next) => {
-    const { sectionId, academicYearId, semesterNumber, facultyAssignmentId } =
-      req.query;
+    const {
+      classroomId,
+      subjectId: rawSubjectId,
+      sectionId: rawSectionId,
+      academicYearId: rawAcademicYearId,
+      semesterNumber: rawSemesterNumber,
+      dateString,
+      facultyId: rawFacultyId
+    } = req.query;
 
-    if (
-      !sectionId ||
-      !academicYearId ||
-      !semesterNumber ||
-      !facultyAssignmentId
-    ) {
+    // Frontend should send only dateString (YYYY-MM-DD)
+    if (!dateString) {
+      return next(new AppError('dateString is required (YYYY-MM-DD)', 400));
+    }
+
+    const targetDateString = String(dateString);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDateString)) {
       return next(
-        new AppError('Missing required parameters for attendance fetch', 400)
+        new AppError('Invalid dateString format. Expected YYYY-MM-DD', 400)
       );
     }
 
+    const parsedDate = new Date(`${targetDateString}T00:00:00.000Z`);
+    if (Number.isNaN(parsedDate.getTime())) {
+      return next(new AppError('Invalid dateString', 400));
+    }
+
     const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-    const todayName = days[new Date().getDay()];
+    const dayName = days[parsedDate.getUTCDay()];
+
+    if (dayName === 'SUN') {
+      return res.status(200).json({
+        success: true,
+        data: {
+          dateString: targetDateString,
+          day: dayName,
+          slots: [],
+          entries: [],
+          attendanceSheets: []
+        }
+      });
+    }
+
+    // If the calendar explicitly marks this as a holiday, return empty.
+    const calendarEntry = await AcademicCalendar.findOne({
+      dateString: targetDateString
+    })
+      .select('isWorkingDay')
+      .lean();
+
+    if (calendarEntry && !calendarEntry.isWorkingDay) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          dateString: targetDateString,
+          day: dayName,
+          slots: [],
+          entries: [],
+          attendanceSheets: []
+        }
+      });
+    }
+
+    // Resolve context from classroom when provided (preferred)
+    let sectionId = rawSectionId;
+    let academicYearId = rawAcademicYearId;
+    let semesterNumber = rawSemesterNumber;
+    let subjectId = rawSubjectId;
+
+    let resolvedClassroomId = null;
+
+    if (classroomId) {
+      if (!mongoose.Types.ObjectId.isValid(classroomId)) {
+        return next(new AppError('Invalid classroomId', 400));
+      }
+
+      const classroom = await Classroom.findById(classroomId)
+        .select(
+          'sectionId subjectId academicYearId semesterNumber status isDeleted'
+        )
+        .lean();
+
+      if (!classroom || classroom.isDeleted || classroom.status !== 'active') {
+        return next(new AppError('Classroom not found', 404));
+      }
+
+      resolvedClassroomId = classroomId;
+      sectionId = classroom.sectionId;
+      academicYearId = classroom.academicYearId;
+      semesterNumber = classroom.semesterNumber;
+      subjectId = classroom.subjectId;
+    }
+
+    if (!sectionId || !academicYearId || !semesterNumber || !subjectId) {
+      return next(
+        new AppError(
+          'Provide classroomId OR (sectionId, academicYearId, semesterNumber, subjectId)',
+          400
+        )
+      );
+    }
+
+    // Normalize/validate ids
+    if (!mongoose.Types.ObjectId.isValid(String(sectionId))) {
+      return next(new AppError('Invalid sectionId', 400));
+    }
+    if (!mongoose.Types.ObjectId.isValid(String(academicYearId))) {
+      return next(new AppError('Invalid academicYearId', 400));
+    }
+    if (!mongoose.Types.ObjectId.isValid(String(subjectId))) {
+      return next(new AppError('Invalid subjectId', 400));
+    }
+
+    const sem = Number(semesterNumber);
+    if (!Number.isInteger(sem) || sem < 1) {
+      return next(new AppError('Invalid semesterNumber', 400));
+    }
+
+    // Faculty filter:
+    // - FACULTY users will ONLY see their own assignment entries.
+    // - HOD/ADMIN can optionally pass facultyId to filter; otherwise they see all assignments for the subject.
+    let facultyIdFilter = null;
+
+    if (req.user.role === 'FACULTY') {
+      const faculty = await Faculty.findOne({ userId: req.user._id })
+        .select('_id')
+        .lean();
+
+      if (!faculty) {
+        return next(new AppError('Faculty not found for this user', 404));
+      }
+
+      facultyIdFilter = faculty._id;
+    } else if (rawFacultyId) {
+      if (!mongoose.Types.ObjectId.isValid(String(rawFacultyId))) {
+        return next(new AppError('Invalid facultyId', 400));
+      }
+      facultyIdFilter = rawFacultyId;
+    }
 
     const timetable = await Timetable.findOne({
       sectionId,
       academicYearId,
-      semesterNumber
-    });
+      semesterNumber: sem
+    }).lean();
 
     if (!timetable) {
-      return res
-        .status(200)
-        .json({ success: true, data: { slots: [], entries: [] } });
+      return res.status(200).json({
+        success: true,
+        data: {
+          dateString: targetDateString,
+          day: dayName,
+          slots: [],
+          entries: [],
+          attendanceSheets: []
+        }
+      });
     }
 
-    // 3. Find Entries for this specific FacultyAssignment/Subject on Today
+    // Find all componentIds for this subject (THEORY/PRACTICAL/etc)
+    const subjectComponents = await SubjectComponent.find({ subjectId })
+      .select('_id')
+      .lean();
+
+    const subjectComponentIds = subjectComponents.map((sc) => sc._id);
+
+    if (!subjectComponentIds.length) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          dateString: targetDateString,
+          day: dayName,
+          slots: [],
+          entries: [],
+          attendanceSheets: []
+        }
+      });
+    }
+
+    const faQuery = {
+      sectionId,
+      academicYearId,
+      semesterNumber: sem,
+      status: 'active',
+      subjectComponentId: { $in: subjectComponentIds }
+    };
+
+    if (facultyIdFilter) {
+      faQuery.facultyIds = facultyIdFilter;
+    }
+
+    const assignments = await FacultyAssignment.find(faQuery)
+      .select('_id subjectComponentId venue')
+      .populate({
+        path: 'subjectComponentId',
+        select: 'name shortName componentType subjectId',
+        populate: {
+          path: 'subjectId',
+          select: 'name code shortName'
+        }
+      })
+      .lean();
+
+    const assignmentIds = assignments.map((a) => a._id);
+    const assignmentById = new Map(
+      assignments.map((assignment) => [String(assignment._id), assignment])
+    );
+
+    if (!assignmentIds.length) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          dateString: targetDateString,
+          day: dayName,
+          slots: [],
+          entries: [],
+          attendanceSheets: []
+        }
+      });
+    }
+
+    // Get timetable entries only for this subject (and faculty when filtered) on that day
     const entries = await TimetableEntry.find({
       timetableId: timetable._id,
-      day: todayName,
-      facultyAssignmentId
-    }).sort({ slotOrder: 1 });
+      day: dayName,
+      facultyAssignmentId: { $in: assignmentIds }
+    })
+      .sort({ slotOrder: 1 })
+      .lean();
 
-    // Return empty arrays if no entries exist for the specific subject today
+    if (!entries.length) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          dateString: targetDateString,
+          day: dayName,
+          slots: [],
+          entries: [],
+          attendanceSheets: []
+        }
+      });
+    }
+
+    const slotOrders = new Set(entries.map((e) => e.slotOrder));
+
+    const slots = (timetable.slots || [])
+      .filter((s) => slotOrders.has(s.order))
+      .sort((a, b) => a.order - b.order);
+
+    const entryIds = entries.map((e) => e._id);
+
+    const attendanceQuery = {
+      timetableEntry: { $in: entryIds },
+      dateString: targetDateString
+    };
+
+    // When coming from a classroom click, keep sheets scoped to that classroom.
+    if (resolvedClassroomId) {
+      attendanceQuery.classroom = resolvedClassroomId;
+    }
+
+    const attendanceSheets = await Attendance.find(attendanceQuery)
+      .select('_id timetableEntry status isLocked markedAt')
+      .lean();
+
+    const latestRequestByAttendance = new Map();
+    const attendanceIds = attendanceSheets.map((sheet) => sheet._id);
+
+    if (attendanceIds.length) {
+      const requests = await AttendanceRequest.find({
+        attendanceRecord: { $in: attendanceIds }
+      })
+        .sort({ createdAt: -1 })
+        .lean();
+
+      requests.forEach((request) => {
+        const key = String(request.attendanceRecord);
+        if (!latestRequestByAttendance.has(key)) {
+          latestRequestByAttendance.set(key, request);
+        }
+      });
+    }
+
+    const attendanceByEntry = new Map(
+      attendanceSheets.map((sheet) => [
+        String(sheet.timetableEntry),
+        {
+          ...sheet,
+          latestRequest:
+            latestRequestByAttendance.get(String(sheet._id)) || null
+        }
+      ])
+    );
+
+    const slotByOrder = new Map(
+      (timetable.slots || []).map((slot) => [Number(slot.order), slot])
+    );
+
+    const enrichedEntries = entries.map((entry) => {
+      const assignment = assignmentById.get(String(entry.facultyAssignmentId));
+      const component = assignment?.subjectComponentId;
+      const subject = component?.subjectId;
+      const slot = slotByOrder.get(Number(entry.slotOrder));
+      const attendance = attendanceByEntry.get(String(entry._id)) || null;
+
+      return {
+        ...entry,
+        facultyAssignmentId:
+          assignment?._id || entry.facultyAssignmentId || null,
+        label: buildPeriodLabel(entry.slotOrder, component),
+        title: buildPeriodLabel(entry.slotOrder, component),
+        startTime: slot?.startTime || null,
+        endTime: slot?.endTime || null,
+        type: slot?.type || 'class',
+        componentName: component?.name || '',
+        componentShortName: component?.shortName || '',
+        componentType: component?.componentType || '',
+        subjectComponent: toSubjectComponentPayload(component),
+        subject: toSubjectPayload(subject),
+        attendanceId: attendance?._id || null,
+        attendanceStatus: attendance?.status || null,
+        isLocked: attendance?.isLocked || false,
+        markedAt: attendance?.markedAt || null,
+        latestRequest: attendance?.latestRequest || null
+      };
+    });
+
+    const decoratedAttendanceSheets = [...attendanceByEntry.values()];
+
     res.status(200).json({
       success: true,
       data: {
-        slots: timetable.slots, // Provide slot timings for the UI
-        entries: entries || []
+        dateString: targetDateString,
+        day: dayName,
+        slots,
+        entries: enrichedEntries,
+        attendanceSheets: decoratedAttendanceSheets
       }
     });
   }
@@ -205,6 +532,7 @@ export const getComponents = catchAsync(async (req, res, next) => {
     }
   });
 });
+
 export const getFacultyTimetable = catchAsync(async (req, res, next) => {
   const { facultyId, academicYearId } = req.query;
 
@@ -215,8 +543,11 @@ export const getFacultyTimetable = catchAsync(async (req, res, next) => {
   let targetAcademicYearId = academicYearId;
 
   if (!targetAcademicYearId) {
-    const currentAcademicYear = await AcademicYear.findOne({ isActive: true }).lean();
-    if (!currentAcademicYear) return next(new AppError('No active academic year found', 400));
+    const currentAcademicYear = await AcademicYear.findOne({
+      isActive: true
+    }).lean();
+    if (!currentAcademicYear)
+      return next(new AppError('No active academic year found', 400));
     targetAcademicYearId = currentAcademicYear._id;
   }
 
@@ -226,15 +557,19 @@ export const getFacultyTimetable = catchAsync(async (req, res, next) => {
       facultyIds: facultyId,
       academicYearId: targetAcademicYearId,
       status: 'active'
-    }).select('_id sectionId subjectComponentId venue semesterNumber').lean(),
+    })
+      .select('_id sectionId subjectComponentId venue semesterNumber')
+      .lean(),
     AdditionalHour.find({
       facultyIds: facultyId,
       academicYearId: targetAcademicYearId
-    }).select('_id sectionId name shortName venue semesterNumber').lean()
+    })
+      .select('_id sectionId name shortName venue semesterNumber')
+      .lean()
   ]);
 
-  const faIds = facultyAssignments.map(fa => fa._id);
-  const ahIds = additionalHours.map(ah => ah._id);
+  const faIds = facultyAssignments.map((fa) => fa._id);
+  const ahIds = additionalHours.map((ah) => ah._id);
 
   // 2. Find all Timetable Entries for these assignments
   const entries = await TimetableEntry.find({
@@ -245,19 +580,27 @@ export const getFacultyTimetable = catchAsync(async (req, res, next) => {
   }).lean();
 
   if (!entries.length) {
-    return res.status(200).json({ success: true, data: { slots: [], grid: {} } });
+    return res
+      .status(200)
+      .json({ success: true, data: { slots: [], grid: {} } });
   }
 
   // 3. Fetch Slot structure (Assuming uniform slots across the institution)
-  const timetableIds = [...new Set(entries.map(e => e.timetableId.toString()))];
-  const timetables = await Timetable.find({ _id: { $in: timetableIds } }).select('slots').lean();
+  const timetableIds = [
+    ...new Set(entries.map((e) => e.timetableId.toString()))
+  ];
+  const timetables = await Timetable.find({ _id: { $in: timetableIds } })
+    .select('slots')
+    .lean();
   const slots = timetables[0]?.slots.sort((a, b) => a.order - b.order) || [];
 
   // 4. Pre-fetch Metadata (Sections, Departments, Subjects)
-  const sectionIds = [...new Set([
-    ...facultyAssignments.map(fa => fa.sectionId.toString()),
-    ...additionalHours.map(ah => ah.sectionId.toString())
-  ])];
+  const sectionIds = [
+    ...new Set([
+      ...facultyAssignments.map((fa) => fa.sectionId.toString()),
+      ...additionalHours.map((ah) => ah.sectionId.toString())
+    ])
+  ];
 
   const [sections, ayDoc] = await Promise.all([
     Section.find({ _id: { $in: sectionIds } })
@@ -267,7 +610,8 @@ export const getFacultyTimetable = catchAsync(async (req, res, next) => {
           { path: 'departmentId', select: 'name code' },
           { path: 'batchId', select: 'name' }
         ]
-      }).lean(),
+      })
+      .lean(),
     AcademicYear.findById(targetAcademicYearId).select('name').lean()
   ]);
 
@@ -275,18 +619,19 @@ export const getFacultyTimetable = catchAsync(async (req, res, next) => {
     .populate({
       path: 'subjectComponentId',
       populate: { path: 'subjectId', select: 'name code shortName' }
-    }).lean();
+    })
+    .lean();
 
-  const sectionMap = new Map(sections.map(s => [s._id.toString(), s]));
-  const faMap = new Map(fasPopulated.map(f => [f._id.toString(), f]));
-  const ahMap = new Map(additionalHours.map(a => [a._id.toString(), a]));
+  const sectionMap = new Map(sections.map((s) => [s._id.toString(), s]));
+  const faMap = new Map(fasPopulated.map((f) => [f._id.toString(), f]));
+  const ahMap = new Map(additionalHours.map((a) => [a._id.toString(), a]));
 
   // 5. Build the Unified Grid
   const grid = {};
 
-  entries.forEach(entry => {
+  entries.forEach((entry) => {
     const { day, slotOrder, facultyAssignmentId, additionalHourId } = entry;
-    
+
     if (!grid[day]) grid[day] = {};
     if (!grid[day][slotOrder]) grid[day][slotOrder] = [];
 
@@ -305,7 +650,8 @@ export const getFacultyTimetable = catchAsync(async (req, res, next) => {
         sectionName: section?.name || '',
         subjectCode: subComp?.subjectId?.code || '',
         subjectName: subComp?.subjectId?.name || '',
-        subjectShortName: subComp?.shortName || subComp?.subjectId?.shortName || '',
+        subjectShortName:
+          subComp?.shortName || subComp?.subjectId?.shortName || '',
         componentType: subComp?.componentType || '',
         venue: fa?.venue || ''
       };

@@ -8,6 +8,9 @@ import {
   deletePost,
   getStream,
   getClasswork,
+  getPostDetails,
+  getPostSubmissions,
+  submitPostSubmission,
   addComment,
   deleteComment,
   getTopics
@@ -29,6 +32,22 @@ router.get(
   '/topic',
   authorize('ADMIN', 'FACULTY', 'HOD', 'STUDENT'),
   getTopics
+);
+router.get(
+  '/item/:postId',
+  authorize('ADMIN', 'FACULTY', 'HOD', 'STUDENT'),
+  getPostDetails
+);
+router.get(
+  '/item/:postId/submissions',
+  authorize('ADMIN', 'FACULTY', 'HOD'),
+  getPostSubmissions
+);
+router.post(
+  '/item/:postId/submission',
+  upload.array('files', 10),
+  authorize('STUDENT'),
+  submitPostSubmission
 );
 
 // CREATE ops

@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import xlsx from 'xlsx';
+import bcrypt from 'bcryptjs';
 import Student from '../models/Student.js';
 import User from '../models/User.js';
 import StudentAcademicRecord from '../models/StudentAcademicRecord.js';
@@ -11,6 +12,17 @@ import Classroom from '../models/Classroom.js';
 import Section from '../models/Section.js';
 import AppError from '../utils/AppError.js';
 import StudentHelper from '../utils/StudentHelper.js';
+
+const getSaltRounds = () => {
+  if (process.env.NODE_ENV === 'test') return 1;
+
+  const fromEnv = Number.parseInt(process.env.BCRYPT_SALT_ROUNDS || '', 10);
+  if (Number.isInteger(fromEnv) && fromEnv >= 4 && fromEnv <= 15) {
+    return fromEnv;
+  }
+
+  return process.env.NODE_ENV === 'development' ? 10 : 12;
+};
 
 export const addStudent = async (req, res, next) => {
   let session;
@@ -116,7 +128,7 @@ export const addStudent = async (req, res, next) => {
         {
           _id: userId,
           email: normalizedEmail,
-          password,
+          password: password || 'sece@123',
           role: 'STUDENT',
           gender,
           dateOfBirth
@@ -601,7 +613,7 @@ export const uploadMultipleStudents = async (req, res, next) => {
       users.push({
         _id: userId,
         email: normalizedEmail,
-        password: row.password || '123456',
+        password: row.password || 'sece@123',
         role: 'STUDENT',
         gender,
         dateOfBirth
@@ -634,6 +646,14 @@ export const uploadMultipleStudents = async (req, res, next) => {
 
       rowIndex++;
     }
+
+    // Hash outside transaction to reduce lock duration and speed up writes.
+    const saltRounds = getSaltRounds();
+    await Promise.all(
+      users.map(async (user) => {
+        user.password = await bcrypt.hash(String(user.password), saltRounds);
+      })
+    );
 
     // ===============================
     // TRANSACTION (WRITE ONLY)

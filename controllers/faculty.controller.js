@@ -407,7 +407,7 @@ export const deleteFaculty = async (req, res, next) => {
   }
 };
 
-export const uploadMultipleFaculty = async (req, res, next) => {
+const uploadMultipleFacultyLegacy = async (req, res, next) => {
   let session;
   try {
     if (!req.file) {
@@ -734,6 +734,446 @@ export const uploadMultipleFaculty = async (req, res, next) => {
         },
       });
     }
+  } catch (error) {
+    if (session) {
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
+      session.endSession();
+    }
+    return next(error);
+  }
+};
+
+export const uploadMultipleFaculty = async (req, res, next) => {
+  let session;
+
+  try {
+    if (!req.file) {
+      return next(new AppError("No file uploaded", 400));
+    }
+
+    const workbook = req.file.buffer
+      ? xlsx.read(req.file.buffer, { type: "buffer" })
+      : xlsx.readFile(req.file.path);
+
+    const sheetName = workbook.SheetNames[0];
+    const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+    session = await mongoose.startSession();
+    session.startTransaction();
+
+    const departments = await Department.find({}, "_id code")
+      .lean()
+      .session(session);
+    const deptMap = new Map(
+      departments.map((dept) => [String(dept.code || "").toUpperCase(), dept._id]),
+    );
+
+    let usersCreated = 0;
+    let usersUpdated = 0;
+    let facultyCreated = 0;
+    let facultyUpdated = 0;
+
+    const failedRows = [];
+    const preparedRows = [];
+
+    const requiredFields = [
+      "email",
+      "firstName",
+      "lastName",
+      "employeeId",
+      "primaryPhone",
+      "departmentCode",
+      "salutation",
+      "gender",
+      "dateOfBirth",
+      "joiningDate",
+      "qualification",
+      "designation",
+      "workType",
+    ];
+    const validDesignations = [
+      "Professor",
+      "Associate Professor",
+      "Assistant Professor",
+      "HOD",
+      "Dean",
+      "Faculty",
+      "Professor of Practice",
+      "Lab Technician",
+      "Senior Lab Technician",
+      "Department Secretary",
+    ];
+    const validWorkTypes = ["Full Time", "Contract", "Part Time", "Visiting"];
+    const validGenders = ["Male", "Female", "Other"];
+    const seenEmails = new Set();
+    const seenEmployeeIds = new Set();
+
+    const buildFacultyPayload = (row, userId) => ({
+      userId,
+      departmentId: row.departmentId,
+      salutation: row.salutation,
+      firstName: row.firstName,
+      lastName: row.lastName,
+      primaryPhone: row.primaryPhone,
+      secondaryPhone: row.secondaryPhone,
+      employeeId: row.cleanEmployeeId,
+      designation: row.designation,
+      qualification: row.qualification,
+      workType: row.workType,
+      joiningDate: row.joiningDate,
+      reportingManager: row.reportingManager,
+      noticePeriod: row.noticePeriod,
+    });
+
+    for (let index = 0; index < rows.length; index++) {
+      const rowNumber = index + 2;
+
+      try {
+        const payload = FacultyHelper.normalizeExcelRow(rows[index]);
+
+        for (const field of requiredFields) {
+          if (
+            payload[field] === undefined ||
+            payload[field] === null ||
+            String(payload[field]).trim() === ""
+          ) {
+            throw new Error(`${field} is required`);
+          }
+        }
+
+        const departmentCode = payload.departmentCode.toUpperCase().trim();
+        const departmentId = deptMap.get(departmentCode);
+        if (!departmentId) {
+          throw new Error(`Department code "${departmentCode}" not found`);
+        }
+
+        const primaryPhone = FacultyHelper.normalizePhone(payload.primaryPhone);
+        if (!primaryPhone) {
+          throw new Error("primaryPhone must be a valid 10-digit number");
+        }
+        const secondaryPhone =
+          FacultyHelper.normalizePhone(payload.secondaryPhone) || null;
+
+        const dateOfBirth = FacultyHelper.parseDateValue(payload.dateOfBirth);
+        if (!dateOfBirth) {
+          throw new Error("dateOfBirth must be a valid date");
+        }
+
+        const joiningDate = FacultyHelper.parseDateValue(payload.joiningDate);
+        if (!joiningDate) {
+          throw new Error("joiningDate must be a valid date");
+        }
+
+        const designation = FacultyHelper.normalizeDesignation(
+          payload.designation,
+        );
+        if (!validDesignations.includes(designation)) {
+          throw new Error(`designation "${payload.designation}" is not valid`);
+        }
+
+        const workType = FacultyHelper.normalizeWorkType(payload.workType);
+        if (!workType || !validWorkTypes.includes(workType)) {
+          throw new Error(
+            `workType must be one of: ${validWorkTypes.join(", ")}`,
+          );
+        }
+
+        const cleanEmail = payload.email.toLowerCase().trim();
+        const cleanEmployeeId = payload.employeeId.toUpperCase().trim();
+        const gender = payload.gender.trim();
+        const password = payload.password || "sece@123";
+        const reportingManager = payload.reportingManager
+          ? payload.reportingManager.trim()
+          : null;
+        const noticePeriod = payload.noticePeriod
+          ? payload.noticePeriod.trim()
+          : undefined;
+
+        if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) {
+          throw new Error("email must be a valid email address");
+        }
+
+        if (!validGenders.includes(gender)) {
+          throw new Error(
+            `gender must be one of: ${validGenders.join(", ")}`,
+          );
+        }
+
+        if (String(password).length < 6) {
+          throw new Error("password must be at least 6 characters");
+        }
+
+        if (
+          reportingManager &&
+          !mongoose.Types.ObjectId.isValid(reportingManager)
+        ) {
+          throw new Error("reportingManager must be a valid faculty id");
+        }
+
+        if (seenEmails.has(cleanEmail)) {
+          throw new Error(`Duplicate email "${cleanEmail}" inside Excel`);
+        }
+
+        if (seenEmployeeIds.has(cleanEmployeeId)) {
+          throw new Error(
+            `Duplicate employeeId "${cleanEmployeeId}" inside Excel`,
+          );
+        }
+
+        seenEmails.add(cleanEmail);
+        seenEmployeeIds.add(cleanEmployeeId);
+
+        preparedRows.push({
+          rowNumber,
+          cleanEmail,
+          cleanEmployeeId,
+          password,
+          gender,
+          dateOfBirth,
+          departmentId,
+          salutation: payload.salutation.trim(),
+          firstName: payload.firstName.trim(),
+          lastName: payload.lastName.trim(),
+          primaryPhone,
+          secondaryPhone,
+          designation,
+          qualification: payload.qualification.trim(),
+          workType,
+          joiningDate,
+          reportingManager,
+          noticePeriod,
+        });
+      } catch (error) {
+        failedRows.push({
+          row: rowNumber,
+          message: error.message,
+        });
+      }
+    }
+
+    if (failedRows.length > 0) {
+      await session.abortTransaction();
+      session.endSession();
+      return next(
+        new AppError(
+          "Bulk upload failed due to errors in some rows. No changes were saved.",
+          400,
+          {
+            usersCreated: 0,
+            usersUpdated: 0,
+            facultyCreated: 0,
+            facultyUpdated: 0,
+            failedCount: failedRows.length,
+            failedRows,
+          },
+        ),
+      );
+    }
+
+    const uniqueEmails = [...new Set(preparedRows.map((row) => row.cleanEmail))];
+    const uniqueEmployeeIds = [
+      ...new Set(preparedRows.map((row) => row.cleanEmployeeId)),
+    ];
+
+    const existingUsers = await User.find(
+      { email: { $in: uniqueEmails } },
+      "_id email",
+    )
+      .lean()
+      .session(session);
+
+    const existingUserIds = existingUsers.map((user) => user._id);
+    const existingFaculties = await Faculty.find(
+      {
+        $or: [
+          { employeeId: { $in: uniqueEmployeeIds } },
+          ...(existingUserIds.length ? [{ userId: { $in: existingUserIds } }] : []),
+        ],
+      },
+      "_id userId employeeId",
+    )
+      .lean()
+      .session(session);
+
+    const usersByEmail = new Map(
+      existingUsers.map((user) => [String(user.email).toLowerCase(), user]),
+    );
+    const facultiesByEmployeeId = new Map(
+      existingFaculties.map((faculty) => [faculty.employeeId, faculty]),
+    );
+    const facultiesByUserId = new Map(
+      existingFaculties
+        .filter((faculty) => faculty.userId)
+        .map((faculty) => [String(faculty.userId), faculty]),
+    );
+
+    const newUserDocs = [];
+    const userUpdateOps = [];
+    const facultyCreatePlans = [];
+    const facultyUpdatePlans = [];
+
+    for (const row of preparedRows) {
+      const existingUser = usersByEmail.get(row.cleanEmail) || null;
+      const facultyByEmployee =
+        facultiesByEmployeeId.get(row.cleanEmployeeId) || null;
+      const facultyByUser = existingUser
+        ? facultiesByUserId.get(String(existingUser._id)) || null
+        : null;
+
+      if (!existingUser && !facultyByEmployee) {
+        newUserDocs.push({
+          email: row.cleanEmail,
+          password: row.password,
+          role: "FACULTY",
+          gender: row.gender,
+          dateOfBirth: row.dateOfBirth,
+        });
+        facultyCreatePlans.push({
+          rowNumber: row.rowNumber,
+          email: row.cleanEmail,
+          facultyData: buildFacultyPayload(row, null),
+        });
+        usersCreated++;
+        facultyCreated++;
+        continue;
+      }
+
+      if (!existingUser && facultyByEmployee) {
+        newUserDocs.push({
+          email: row.cleanEmail,
+          password: row.password,
+          role: "FACULTY",
+          gender: row.gender,
+          dateOfBirth: row.dateOfBirth,
+        });
+        facultyUpdatePlans.push({
+          rowNumber: row.rowNumber,
+          facultyId: facultyByEmployee._id,
+          email: row.cleanEmail,
+          update: buildFacultyPayload(row, null),
+          setUserIdFromEmail: true,
+        });
+        usersCreated++;
+        facultyUpdated++;
+        continue;
+      }
+
+      usersUpdated++;
+      userUpdateOps.push({
+        updateOne: {
+          filter: { _id: existingUser._id },
+          update: {
+            $set: {
+              gender: row.gender,
+              dateOfBirth: row.dateOfBirth,
+              role: "FACULTY",
+            },
+          },
+        },
+      });
+
+      const targetFaculty = facultyByEmployee || facultyByUser;
+
+      if (targetFaculty) {
+        facultyUpdatePlans.push({
+          rowNumber: row.rowNumber,
+          facultyId: targetFaculty._id,
+          email: row.cleanEmail,
+          update: buildFacultyPayload(
+            row,
+            facultyByEmployee ? undefined : existingUser._id,
+          ),
+          setUserIdFromEmail: false,
+        });
+        facultyUpdated++;
+      } else {
+        facultyCreatePlans.push({
+          rowNumber: row.rowNumber,
+          userId: existingUser._id,
+          facultyData: buildFacultyPayload(row, existingUser._id),
+        });
+        facultyCreated++;
+      }
+    }
+
+    const createdUsers = newUserDocs.length
+      ? await User.create(newUserDocs, { session })
+      : [];
+    const createdUsersByEmail = new Map(
+      createdUsers.map((user) => [String(user.email).toLowerCase(), user]),
+    );
+
+    if (userUpdateOps.length) {
+      await User.bulkWrite(userUpdateOps, { session });
+    }
+
+    const facultyDocsToCreate = facultyCreatePlans.map((plan) => {
+      const resolvedUserId =
+        plan.userId || createdUsersByEmail.get(plan.email)?._id || null;
+
+      if (!resolvedUserId) {
+        throw new Error(
+          `Unable to resolve user for faculty upload row ${plan.rowNumber}`,
+        );
+      }
+
+      return {
+        ...plan.facultyData,
+        userId: resolvedUserId,
+      };
+    });
+
+    const facultyUpdateOps = facultyUpdatePlans.map((plan) => {
+      const updateData = { ...plan.update };
+
+      if (plan.setUserIdFromEmail) {
+        const createdUser = createdUsersByEmail.get(plan.email);
+        if (!createdUser) {
+          throw new Error(
+            `Unable to resolve user for faculty update row ${plan.rowNumber}`,
+          );
+        }
+        updateData.userId = createdUser._id;
+      } else if (updateData.userId === undefined) {
+        delete updateData.userId;
+      }
+
+      return {
+        updateOne: {
+          filter: { _id: plan.facultyId },
+          update: { $set: updateData },
+        },
+      };
+    });
+
+    if (facultyDocsToCreate.length) {
+      await Faculty.insertMany(facultyDocsToCreate, {
+        session,
+        ordered: true,
+      });
+    }
+
+    if (facultyUpdateOps.length) {
+      await Faculty.bulkWrite(facultyUpdateOps, { session });
+    }
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return res.json({
+      success: true,
+      message: "Faculty upload sync completed successfully",
+      data: {
+        usersCreated,
+        usersUpdated,
+        facultyCreated,
+        facultyUpdated,
+        failedCount: 0,
+        failedRows: [],
+      },
+    });
   } catch (error) {
     if (session) {
       if (session.inTransaction()) {

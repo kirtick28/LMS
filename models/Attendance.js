@@ -38,6 +38,44 @@ const attendanceSchema = new mongoose.Schema(
       ref: 'Faculty',
       required: true
     },
+    subject: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Subject',
+      required: function () {
+        return this.isNew;
+      },
+      index: true
+    },
+    subjectComponent: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'SubjectComponent',
+      required: function () {
+        return this.isNew;
+      },
+      index: true
+    },
+    slotOrder: {
+      type: Number,
+      required: function () {
+        return this.isNew;
+      },
+      min: 1
+    },
+    day: {
+      type: String,
+      enum: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'],
+      required: function () {
+        return this.isNew;
+      }
+    },
+    periodStartTime: {
+      type: String,
+      default: null
+    },
+    periodEndTime: {
+      type: String,
+      default: null
+    },
 
     // Storing the date in UTC and a normalized string for bulletproof querying
     date: {
@@ -78,6 +116,10 @@ attendanceSchema.index(
   { classroom: 1, timetableEntry: 1, dateString: 1 },
   { unique: true }
 );
+attendanceSchema.index({ dateString: 1, 'records.student': 1 });
+attendanceSchema.index({ faculty: 1, dateString: 1 });
+attendanceSchema.index({ subjectComponent: 1, dateString: 1 });
+attendanceSchema.index({ classroom: 1, dateString: 1, slotOrder: 1 });
 
 const Attendance = mongoose.model('Attendance', attendanceSchema);
 export default Attendance;

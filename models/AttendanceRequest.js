@@ -62,6 +62,16 @@ const attendanceRequestSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+attendanceRequestSchema.index({ faculty: 1, approvalStatus: 1, createdAt: -1 });
+attendanceRequestSchema.index({ 'requestedChanges.student': 1 });
+attendanceRequestSchema.index(
+  { attendanceRecord: 1, faculty: 1, approvalStatus: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { approvalStatus: 'Pending' }
+  }
+);
+
 const AttendanceRequest = mongoose.model(
   'AttendanceRequest',
   attendanceRequestSchema

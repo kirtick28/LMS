@@ -3,7 +3,7 @@ import {
   manageFacultyAssignments,
   getAllFacultyAssignments,
   getFacultyAssignmentById,
-  getAcademicStructure
+  getAcademicStructure,getFacultyAssignedSubjects
 } from '../controllers/facultyAssignment.controller.js';
 import { protect, authorize } from '../middlewares/auth.middleware.js';
 
@@ -17,6 +17,12 @@ router.get(
   '/academic-structure/:departmentId',
   authorize('HOD', 'ADMIN'),
   getAcademicStructure
+);
+router.get(
+  "/assignments",
+  protect,
+  authorize("FACULTY"),
+  getFacultyAssignedSubjects
 );
 router.get('/:id', getFacultyAssignmentById);
 

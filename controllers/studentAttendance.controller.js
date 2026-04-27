@@ -2,6 +2,7 @@ import AcademicCalendar from '../models/AcademicCalendar.js';
 import Classroom from '../models/Classroom.js';
 import Attendance from '../models/Attendance.js';
 import Timetable from '../models/Timetable.js';
+import Faculty from "../models/Faculty.js";
 import TimetableEntry from '../models/TimetableEntry.js';
 import catchAsync from '../utils/catchAsync.js';
 import AppError from '../utils/AppError.js';
@@ -580,3 +581,367 @@ export const getMyAttendanceOverview = catchAsync(async (req, res, next) => {
     }
   });
 });
+// ✅ Student Attendance Data for Faculty
+export const getFacultyStudentAttendance = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    // ✅ get faculty
+    const faculty = await Faculty.findOne({ userId })
+      .select("_id")
+      .lean();
+
+    if (!faculty) {
+      return res.status(404).json({
+        success: false,
+        message: "Faculty not found"
+      });
+    }
+
+    const { subjectId, classroomId, month, date, fromDate, toDate } = req.query;
+
+    // ✅ base filter
+    let filter = {
+      faculty: faculty._id
+    };
+
+    if (classroomId) filter.classroom = classroomId;
+    if (subjectId) filter.subject = subjectId;
+
+    // =========================
+    // 🔥 DATE FILTER (IMPROVED)
+    // =========================
+
+    if (fromDate && toDate) {
+      filter.dateString = {
+        $gte: fromDate,
+        $lte: toDate
+      };
+    } 
+    else if (date) {
+      filter.dateString = date;
+    } 
+    else if (month) {
+      const start = `${month}-01`;
+      const end = `${month}-31`;
+      filter.dateString = { $gte: start, $lte: end };
+    }
+
+    // =========================
+    // ✅ FETCH DATA
+    // =========================
+
+    const attendance = await Attendance.find(filter)
+      .populate({
+        path: "records.student",
+        select: "firstName lastName rollNumber"
+      })
+      .populate({
+        path: "classroom",
+        populate: {
+          path: "subjectId sectionId",
+          select: "name code"
+        }
+      })
+      .sort({ dateString: -1 })
+      .lean();
+
+    // =========================
+    // ✅ FORMAT RESPONSE
+    // =========================
+
+    const formatted = [];
+
+    attendance.forEach((att) => {
+      att.records.forEach((rec) => {
+        if (!rec.student) return;
+
+        formatted.push({
+          studentId: rec.student._id,
+          studentName: `${rec.student.firstName} ${rec.student.lastName}`,
+          rollNumber: rec.student.rollNumber,
+
+          subject: att.classroom?.subjectId?.name || "",
+          section: att.classroom?.sectionId?.name || "",
+
+          date: att.dateString,
+          status: rec.status
+        });
+      });
+    });
+
+    res.status(200).json({
+      success: true,
+      count: formatted.length,
+      data: formatted
+    });
+
+  } catch (err) {
+    console.error("Attendance Error FULL:", err);
+
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+};
+// CLASSWISE API
+export const getClasswiseAttendance = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const faculty = await Faculty.findOne({ userId })
+      .select("_id")
+      .lean();
+
+    if (!faculty) {
+      return res.status(404).json({
+        success: false,
+        message: "Faculty not found"
+      });
+    }
+
+    // ✅ CORRECT PARAMS
+    const { subjectName, section, semesterNumber, semester } = req.query;
+
+    // =========================
+    // ✅ BASE FILTER
+    // =========================
+    let match = {
+      faculty: faculty._id
+    };
+
+    // ✅ FIXED HERE
+    if (subjectName) match.subject = subjectName;   // 🔥 STRING MATCH
+    if (section) match.section = section;
+
+    // 🎯 Direct semesterNumber
+    if (semesterNumber) {
+      match.semesterNumber = Number(semesterNumber);
+    }
+
+    // 🔥 Odd / Even
+    if (semester === "odd") {
+      match.semesterNumber = { $in: [1, 3, 5, 7] };
+    } else if (semester === "even") {
+      match.semesterNumber = { $in: [2, 4, 6, 8] };
+    }
+
+    // =========================
+    // 🔥 AGGREGATION
+    // =========================
+    const result = await Attendance.aggregate([
+      { $match: match },
+
+      {
+        $addFields: {
+          month: { $substr: ["$dateString", 5, 2] }
+        }
+      },
+
+      {
+        $group: {
+          _id: "$month",
+
+          totalClasses: { $sum: 1 },
+
+          totalPresent: {
+            $sum: {
+              $size: {
+                $filter: {
+                  input: "$records",
+                  as: "r",
+                  cond: { $eq: ["$$r.status", "Present"] }
+                }
+              }
+            }
+          },
+
+          totalStudents: {
+            $sum: { $size: "$records" }
+          }
+        }
+      },
+
+      {
+        $addFields: {
+          percentage: {
+            $cond: [
+              { $eq: ["$totalStudents", 0] },
+              0,
+              {
+                $multiply: [
+                  { $divide: ["$totalPresent", "$totalStudents"] },
+                  100
+                ]
+              }
+            ]
+          }
+        }
+      },
+
+      { $sort: { _id: 1 } }
+    ]);
+
+    const monthNames = [
+      "", "Jan", "Feb", "Mar", "Apr", "May",
+      "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    ];
+
+    const data = result.map((item) => ({
+      month: monthNames[Number(item._id)],
+      totalClasses: item.totalClasses,
+      attendancePercentage: Math.round(item.percentage)
+    }));
+
+    res.json({
+      success: true,
+      count: data.length,
+      data
+    });
+
+  } catch (err) {
+    console.error("Classwise Error:", err);
+
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+};
+//STUDENTWISE API
+export const getStudentwiseAttendance = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    // ✅ get faculty
+    const faculty = await Faculty.findOne({ userId })
+      .select("_id")
+      .lean();
+
+    if (!faculty) {
+      return res.status(404).json({
+        success: false,
+        message: "Faculty not found"
+      });
+    }
+
+    const {
+      subjectId,
+      classroomId,
+      semester,
+      month,
+      date,
+      fromDate,
+      toDate
+    } = req.query;
+
+    // =========================
+    // ✅ BASE FILTER
+    // =========================
+    let filter = {
+      faculty: faculty._id
+    };
+
+    if (classroomId) filter.classroom = classroomId;
+    if (subjectId) filter.subject = subjectId;
+
+    // =========================
+    // 🔥 SEMESTER FILTER
+    // =========================
+    if (semester === "odd") {
+      filter.semesterNumber = { $in: [1, 3, 5, 7] };
+    } else if (semester === "even") {
+      filter.semesterNumber = { $in: [2, 4, 6, 8] };
+    }
+
+    // =========================
+    // 🔥 DATE FILTER (SMART)
+    // =========================
+    if (fromDate && toDate) {
+      filter.dateString = { $gte: fromDate, $lte: toDate };
+    } else if (date) {
+      filter.dateString = date;
+    } else if (month) {
+      const start = `${month}-01`;
+      const end = `${month}-31`;
+      filter.dateString = { $gte: start, $lte: end };
+    }
+
+    // =========================
+    // ✅ FETCH DATA
+    // =========================
+    const attendance = await Attendance.find(filter)
+      .populate({
+        path: "records.student",
+        select: "firstName lastName rollNumber"
+      })
+      .populate({
+        path: "classroom",
+        populate: {
+          path: "subjectId sectionId",
+          select: "name code"
+        }
+      })
+      .sort({ dateString: -1 })
+      .lean();
+
+    // =========================
+    // ✅ STUDENTWISE GROUPING
+    // =========================
+
+    const studentMap = {};
+
+    attendance.forEach((att) => {
+      att.records.forEach((rec) => {
+        if (!rec.student) return;
+
+        const id = rec.student._id.toString();
+
+        if (!studentMap[id]) {
+          studentMap[id] = {
+            studentId: id,
+            studentName: `${rec.student.firstName} ${rec.student.lastName}`,
+            rollNumber: rec.student.rollNumber,
+            present: 0,
+            absent: 0,
+            total: 0
+          };
+        }
+
+        if (rec.status === "Present") {
+          studentMap[id].present += 1;
+        } else {
+          studentMap[id].absent += 1;
+        }
+
+        studentMap[id].total += 1;
+      });
+    });
+
+    // =========================
+    // ✅ FINAL FORMAT
+    // =========================
+
+    const formatted = Object.values(studentMap).map((s) => ({
+      ...s,
+      percentage: s.total
+        ? Math.round((s.present / s.total) * 100)
+        : 0
+    }));
+
+    res.status(200).json({
+      success: true,
+      count: formatted.length,
+      data: formatted
+    });
+
+  } catch (err) {
+    console.error("Studentwise Error:", err);
+
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+};

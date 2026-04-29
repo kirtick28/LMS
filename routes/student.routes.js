@@ -17,8 +17,14 @@ import { getStudentDashboard } from '../controllers/studentDashboard.controller.
 
 import {
   getMyAttendanceOverview,
-  getFacultyStudentAttendance,getClasswiseAttendance,getStudentwiseAttendance
+  getFacultyStudentAttendance
 } from '../controllers/studentAttendance.controller.js';
+import {
+  getFacultyAttendanceClasswiseReport,
+  downloadFacultyAttendanceClasswiseReport,
+  getFacultyAttendanceStudentwiseReport,
+  downloadFacultyAttendanceStudentwiseReport
+} from '../controllers/facultyAttendanceReport.controller.js';
 
 import { protect, authorize } from '../middlewares/auth.middleware.js';
 
@@ -58,16 +64,24 @@ router.get(
   getFacultyStudentAttendance
 );
 router.get(
+  '/faculty/attendance/classwise/download',
+  authorize('FACULTY'),
+  downloadFacultyAttendanceClasswiseReport
+);
+router.get(
   "/faculty/attendance/classwise",
-  protect,
   authorize("FACULTY"),
-  getClasswiseAttendance
+  getFacultyAttendanceClasswiseReport
+);
+router.get(
+  '/faculty/attendance/studentwise/download',
+  authorize('FACULTY'),
+  downloadFacultyAttendanceStudentwiseReport
 );
 router.get(
   "/faculty/attendance/studentwise",
-  protect,
   authorize("FACULTY"),
-  getStudentwiseAttendance
+  getFacultyAttendanceStudentwiseReport
 );
 // =====================
 // ⚠️ DYNAMIC ROUTES LAST
